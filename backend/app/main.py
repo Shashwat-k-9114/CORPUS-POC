@@ -1,7 +1,9 @@
+import os
 import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -15,6 +17,31 @@ app = FastAPI(title="Corpus API", version="0.1.0")
 MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
 PDF_MAGIC = b"%PDF-"
 UPLOAD_CHUNK_SIZE = 1024 * 1024  # 1 MB
+
+# CORS: the frontend (Next.js, a different origin) calls this API directly from the
+# browser and must read the coordinate-mapping headers off the image response, which
+# requires an explicit allow-list and expose_headers (see BUILD_LOG.md, Phase 5).
+DEFAULT_ALLOWED_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+_allowed_origins = [
+    origin.strip()
+    for origin in os.environ.get("CORPUS_ALLOWED_ORIGINS", DEFAULT_ALLOWED_ORIGINS).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+    expose_headers=[
+        "X-Page-Number",
+        "X-Page-Width-Points",
+        "X-Page-Height-Points",
+        "X-Image-Width-Px",
+        "X-Image-Height-Px",
+        "X-Resolution-Dpi",
+    ],
+)
 
 
 class HealthResponse(BaseModel):

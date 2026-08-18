@@ -20,6 +20,22 @@ uvicorn app.main:app --reload
 
 Serves on `http://127.0.0.1:8000`. Interactive API docs at `/docs`.
 
+### CORS (required for the frontend)
+
+The frontend calls this API directly from the browser, so the backend must explicitly
+allow that origin. Copy `.env.example` to `.env` and set `CORPUS_ALLOWED_ORIGINS` (a
+comma-separated list) if the frontend isn't running at the default
+`http://localhost:3000` / `http://127.0.0.1:3000` — for example, if that port was
+already taken and Next.js picked a different one:
+
+```
+uvicorn app.main:app --reload --env-file .env
+```
+
+If this isn't set correctly, the browser will show CORS errors and the frontend's
+requests will fail even though the backend is running fine — check this first if the
+frontend can't reach the API.
+
 ## Test
 
 ```

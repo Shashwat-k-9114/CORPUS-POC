@@ -10,9 +10,10 @@ This is a small, fast-iterating prototype, not the final Corpus architecture. Se
 
 ## Status
 
-**Foundation phase — no application code yet.** See `BUILD_LOG.md` for the current,
-authoritative state of what has actually been built. Do not assume anything below is
-running until `BUILD_LOG.md` says so.
+**Working end-to-end locally.** Upload a PDF in the browser, extract it, browse pages,
+see word-level bounding boxes overlaid on the rendered page, click a word to inspect
+its provenance. Not yet deployed. See `BUILD_LOG.md` for the current, authoritative
+state of what has actually been built and verified.
 
 ## Project documents
 
@@ -41,8 +42,39 @@ it.
 
 ## Local development
 
-Not yet available — backend and frontend have not been implemented. This section will be
-filled in as Phase 2/3 complete (see `BUILD_LOG.md`).
+Run the backend and frontend in two terminals.
+
+**Backend** (see `backend/README.md` for full detail):
+
+```
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+Serves on `http://127.0.0.1:8000`. By default it accepts browser requests from
+`http://localhost:3000` / `http://127.0.0.1:3000` (CORS) — copy `.env.example` to
+`.env` and set `CORPUS_ALLOWED_ORIGINS` if your frontend runs on a different port (for
+example, if port 3000 is already in use, Next.js will pick the next free port and you
+must update this to match, or the browser will get CORS errors).
+
+**Frontend** (see `frontend/` for its own scripts):
+
+```
+cd frontend
+npm install
+npm run dev
+```
+
+Serves on `http://localhost:3000` (or the next free port). Copy `.env.example` to
+`.env.local` if the backend isn't at the default `http://127.0.0.1:8000`.
+
+Then open the frontend URL, upload a native-text PDF, and explore. The RIL Integrated
+Annual Report used throughout development (`../poc-01/documents/native/RIL_IAR
+2026.pdf`) is a good test document — try the "Page 22" and "Page 81" quick-jump buttons
+that appear for any document with enough pages.
 
 ## Deployment
 

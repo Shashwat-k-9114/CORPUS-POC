@@ -87,18 +87,25 @@ end users, multiple concurrent users, or production traffic.
 
 ## Current capabilities
 
-As of this document's last update: **none yet implemented.** This session completed
-Phase 0 (inspection/planning) and the documentation foundation only. No backend or
-frontend application code exists yet. See `BUILD_LOG.md` for the authoritative,
-up-to-date implementation status.
+The full v1 user journey above works end-to-end, locally: a user can open the frontend
+in a browser, upload a native-text PDF, watch it get extracted, browse pages (including
+one-click jumps to two representative "hard" pages), see word-level bounding boxes
+overlaid on the rendered page image, click any word to highlight it, and inspect its
+full provenance record (page, bounding box, order, extraction method, and an explicit
+"not provided" confidence indicator). Manually verified against the real RIL Integrated
+Annual Report (147 pages). Not yet deployed. See `BUILD_LOG.md` for the authoritative,
+up-to-date implementation status and exactly what was and wasn't tested.
 
 ## Current limitations
 
-- No application code exists yet (pre-Phase 2).
-- Even once built, v1 will only handle native-text PDFs, not scanned documents.
-- No persistence: extraction results are not expected to survive a backend restart in
-  v1 (see `[[dec-004-no-database]]`).
-- Table structure will not be extracted or represented in v1.
+- Not deployed — local development only; no public URL yet.
+- v1 only handles native-text PDFs, not scanned documents.
+- No persistence: extraction results do not survive a backend restart, and a retained
+  document is deleted after 30 minutes of inactivity (see `[[dec-004-no-database]]`,
+  `[[dec-008-ephemeral-document-retention]]`).
+- Table structure is not extracted or represented in v1.
+- No automated browser/end-to-end test exists yet; browser verification has been done
+  manually each phase.
 
 ## Roadmap (directional, not committed)
 
@@ -117,7 +124,7 @@ up-to-date implementation status.
 
 ## Current status
 
-**Phase 0 complete: repository inspected, minimal architecture proposed, documentation
-foundation created.** Phase 1 (repository setup/doc system) is now substantially done as
-part of this same session. Phase 2 (minimal backend) has not started. See `BUILD_LOG.md`
-for the authoritative state.
+**Working end-to-end prototype, local only.** Backend (`GET /health`, `POST /extract`,
+`GET /documents/{id}/pages/{n}/image`) and frontend (upload → extract → view → inspect)
+are both built and manually verified together against the real RIL PDF. Deployment has
+not started. See `BUILD_LOG.md` for the authoritative, session-by-session state.

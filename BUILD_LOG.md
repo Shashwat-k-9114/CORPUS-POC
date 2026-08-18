@@ -412,3 +412,202 @@ copied into this repo):** covered above — pages 22 and 81 rendered correctly, 
 **Next immediate task:** Not started. Open choice for Phase 5: begin the frontend (now
 that both extraction and page-image endpoints exist to build a viewer against), or
 continue backend-only work. No decision made in this session.
+
+---
+
+## 2026-08-18 — Phase 5: first end-to-end browser demo (frontend)
+
+**Task:** Build one complete, working vertical slice in the browser — upload → extract
+→ select page → view page image → see word-level bounding boxes overlaid → click a
+word → inspect its provenance — using only the existing Phase 2–4 backend, so the
+prototype can actually be handed to a stakeholder. Not an extraction-system expansion.
+
+**What was built:**
+- Scaffolded `frontend/` with `create-next-app` (Next.js 16.3.1, React 19.2.8,
+  TypeScript, App Router, ESLint flat config, Turbopack — per `DEC-001`, no new
+  decision needed). Removed the generated boilerplate (`public/*.svg`, `favicon.ico`,
+  `page.module.css` sample). Kept the tool-managed `AGENTS.md`/`CLAUDE.md` files
+  (Next.js 16 writes these itself on `next dev` to point future coding agents at
+  version-matched bundled docs — fighting them just recreates the diff, per their own
+  header comment).
+- Read the bundled Next.js 16 upgrade-guide docs (`node_modules/next/dist/docs/.../
+  upgrading/version-16.md`) before writing app code, since this Next.js version is
+  newer than training-data knowledge. Relevant conclusion: this app touches none of the
+  breaking Async Request API changes (`params`/`searchParams`/`cookies`/`headers`) —
+  it's a single static route with all interactivity client-side, calling the FastAPI
+  backend directly via `fetch`/`XMLHttpRequest`, not Next.js server data-fetching.
+- `frontend/lib/types.ts` — TypeScript interfaces mirroring `backend/app/models.py`
+  exactly (`BoundingBox`, `Region`, `PageExtraction`, `DocumentExtractionResponse`).
+- `frontend/lib/coords.ts` — `pointToPixel()`/`regionToPixelRect()`, the literal
+  `pixel = point * (resolutionDpi / 72)` formula from the Phase 4 contract, as small
+  pure functions. This is the "tiny test helper for coordinate mapping" the phase asked
+  for, instead of a new debug API endpoint — no new backend surface was added for this.
+- `frontend/lib/api.ts` — `extractDocument()` (XMLHttpRequest, not `fetch`, specifically
+  to get real `upload`→`extracting` phase transitions from `xhr.upload` progress/load
+  events — not simulated/fake progress) and `fetchPageImage()` (`fetch`, reads the
+  `X-Page-Width-Points`/`X-Image-Width-Px`/`X-Resolution-Dpi` etc. response headers,
+  converts the body to a blob URL). `ApiError` carries the backend's own `detail` text
+  through unmodified — the UI never invents its own error copy.
+- `frontend/components/UploadPanel.tsx` — the sole initial-screen action (`UX-03`):
+  choose/drag a PDF, upload, with distinct uploading/extracting/error states.
+- `frontend/components/DocumentSummary.tsx` — filename, page count, extraction method +
+  pdfplumber version, `document_id`; page navigation (prev/next, numeric jump); two
+  quick-jump buttons ("Page 22 (harder layout)", "Page 81 (harder tables)") that only
+  render when the document actually has that many pages.
+- `frontend/components/PageViewer.tsx` — fetches the page image, overlays an SVG with
+  one `<rect>` per region (subtle default stroke, bolder on hover, solid highlight on
+  selection), click sets the selected region. Uses `viewBox="0 0 imageWidthPx
+  imageHeightPx"` from the response headers (not hardcoded assumptions) so the overlay
+  and image scale together and stay aligned at any display size, aspect ratio preserved
+  by construction.
+- `frontend/components/ProvenancePanel.tsx` — shows text, `document_id`, `page_number`,
+  `order_index`, `extraction_method`, all four bbox fields, and `confidence` — rendered
+  as an explicit "not provided (pdfplumber's native-text extraction has no confidence
+  score -- never fabricated)" message when `null`, never as a blank or a fake `0`.
+- `frontend/app/page.tsx` — top-level orchestrator; plain `useState`, no state library
+  (three variables: current document, current page, selected region — prop-drilled to
+  four components; not enough state to justify Context/Redux).
+- `frontend/app/layout.tsx`/`globals.css` — minimal light/dark-aware styling, system
+  font stack (no `next/font/google` — avoids a build-time dependency on reaching
+  Google's font CDN, which may not be reliable in every environment this gets built in).
+- **Backend change (CORS — the one change this phase permitted):**
+  `backend/app/main.py` now adds `CORSMiddleware`, origin allow-list from
+  `CORPUS_ALLOWED_ORIGINS` (comma-separated env var, default
+  `http://localhost:3000,http://127.0.0.1:3000`), and `expose_headers` for the six
+  `X-*` coordinate headers — without `expose_headers`, `fetch()` in the browser cannot
+  read custom response headers at all, which would have silently broken the coordinate
+  mapping. `backend/.env.example` and `frontend/.env.example` added (first real env
+  vars either app has needed — `CORPUS_ALLOWED_ORIGINS` and
+  `NEXT_PUBLIC_API_BASE_URL`). No other backend behavior changed.
+- Testing: added `vitest` + `@testing-library/react` + `jsdom` (pinned to versions
+  actually compatible with this machine's Node 22.18 — `jsdom@28.1.0`, not the newest
+  `30.0.1`, which requires Node ≥22.22 and produced an `EBADENGINE` warning; same kind
+  of environment-driven pin as the backend's Phase 2 dependency fix). Config as
+  `vitest.config.mts`/`vitest.setup.mts` (`.mts` to avoid an ESM/CJS loader warning
+  without touching `package.json`'s module type, which could have affected Next's own
+  tooling). `frontend/lib/coords.test.ts` (6 tests, the coordinate formula) and two
+  component tests, `ProvenancePanel.test.tsx` (7) and `DocumentSummary.test.tsx` (3),
+  focused specifically on the null-confidence contract and the page-22/81 quick-jump
+  visibility rule. `backend/tests/test_cors.py` (3 tests) added for the new CORS
+  behavior.
+- Fixed one real `eslint` finding (`react-hooks/set-state-in-effect`) in
+  `PageViewer.tsx`: the effect was synchronously calling `setState("loading")` at its
+  own top, which React's linter flags as causing a wasted extra render. Fixed by
+  remounting `PageViewer` via `key={`${documentId}-${pageNumber}`}` in `page.tsx` so a
+  fresh mount's own `useState("loading")` default does the resetting, instead of an
+  explicit synchronous reset inside the effect.
+
+**Files added/modified:**
+- `frontend/` — full Next.js app (see above); `package.json`, `tsconfig.json`,
+  `next.config.ts`, `eslint.config.mjs` are `create-next-app` defaults, unmodified.
+- `frontend/.env.example` (new)
+- `backend/app/main.py` (modified — CORS middleware only)
+- `backend/.env.example` (new)
+- `backend/tests/test_cors.py` (new)
+
+**Behaviour added/changed:** A user can now open the app in a browser, upload a PDF,
+watch it get extracted, browse pages (including one-click jumps to pages 22/81), see
+word-level bounding boxes drawn on the rendered page image, click any word to highlight
+it and see its full provenance record, and see `confidence` explicitly marked as not
+provided rather than blank or fabricated.
+
+**Tests performed:**
+- Backend: `pytest -v` → **24 passed, 0 failed** (the pre-existing 21 unchanged, plus 3
+  new CORS tests). Same pre-existing httpx/httpx2 deprecation warning, unchanged.
+- Frontend: `npm test` (`vitest run`) → **11 passed, 0 failed** — coordinate-formula
+  correctness, confidence-null vs. real-value rendering, and quick-jump page-count
+  gating. `npm run build` → compiles and type-checks cleanly. `npm run lint` → 0
+  problems (after the fix above).
+- Not covered by automated frontend tests (deliberately, to keep this phase's test
+  surface proportionate): the full upload→extract XHR flow and the page-image `fetch`
+  flow, which would need either a live backend or non-trivial `fetch`/`XMLHttpRequest`
+  mocking. These were instead verified directly against the real running backend in
+  the manual browser session below, which is a stronger check for this phase than a
+  mocked unit test would have been.
+
+**Manual RIL validation (read-only, `../poc-01/documents/native/RIL_IAR 2026.pdf`,
+never copied into this repo) — full browser session, both servers running locally:**
+- Note: port 3000 was already occupied by an unrelated local project in this
+  environment; Next.js automatically moved the dev server to port 3002, and the
+  backend was started with `CORPUS_ALLOWED_ORIGINS` including `:3002` for this session.
+  Not a product issue — purely an artifact of this machine's environment; documented
+  here because it's the kind of thing that would confuse the next person testing
+  locally if unrecorded.
+- Uploaded the real RIL PDF via the browser file input. UI correctly showed
+  "Uploading…" then "Extracting… this can take over a minute for large documents."
+  (real phase transitions from XHR progress events, not simulated), then rendered the
+  document summary: `RIL_IAR 2026.pdf`, `147 pages`, `pdfplumber_extract_words
+  (pdfplumber 0.11.10)`, a real `document_id`. Both "Page 22 (harder layout)" and "Page
+  81 (harder tables)" quick-jump buttons were present (page count ≥ 81).
+- Clicked "Page 22 (harder layout)" → correct 7-column-spread page rendered, matching
+  Experiment 1's documented worst reading-order case. Zoomed in and clicked the word
+  "Integrated" in the heading → it highlighted, and the Provenance panel showed
+  `text: "Integrated"`, `page_number: 22`, `order_index: 0`,
+  `extraction_method: pdfplumber_extract_words`, `bbox.x0: 51`, `bbox.x1: 108.06`,
+  `bbox.top: 44.34`, `bbox.bottom: 53.34` — **bit-for-bit identical** to the values
+  independently verified by direct pixel-crop in Phase 4's backend-only manual test,
+  confirming the frontend's coordinate pipeline exactly matches the backend contract
+  end-to-end, not just in isolation.
+- Clicked "Page 81 (harder tables)" → correct related-party-transaction two-table
+  spread rendered (same page visually confirmed in Phase 4). Provenance panel reset to
+  its empty state on page change (confirmed correct behavior, not stale data). Clicked
+  "Notes" (order_index 0) then "Financial" (order_index 1) in sequence — selection and
+  provenance panel updated correctly each time, with only one region highlighted at a
+  time.
+- `confidence` displayed exactly as designed: italic, muted, explicit "not provided
+  (pdfplumber's native-text extraction has no confidence score -- never fabricated)" —
+  never blank, never a fake number.
+- Verified the "invalid PDF" error state live: uploaded a `.txt` file renamed with
+  `.txt` extension (real file, real network round trip) → UI showed
+  `"Only .pdf files are accepted."` in a red error banner — the backend's own message,
+  unmodified, confirming the frontend never invents its own error copy.
+- Verified "New document" reset: returns cleanly to the upload screen with no leftover
+  state.
+- Checked the browser console: one hydration-mismatch warning caused by a third-party
+  browser extension injecting a `data-writer-injected="true"` attribute onto `<body>`
+  before React hydrated (same extension's icon is visible in every screenshot, on both
+  this app and an unrelated site tested for comparison) — not an application defect,
+  not fixed.
+- Not directly exercised live in the browser this session: "expired document" and
+  "unavailable page" error states. Both go through the exact same generic
+  `ApiError`-message-rendering code path already demonstrated working for the
+  "invalid PDF" case above (`UploadPanel`'s and `PageViewer`'s error branches are
+  structurally identical), and the underlying backend responses for both cases were
+  already directly tested in Phase 4's automated and manual verification. Reasoned as
+  covered by code-path equivalence rather than re-demonstrated live; flagged here
+  rather than silently assumed.
+- Cleaned up after testing: stopped both dev servers; the backend was stopped with
+  `Stop-Process -Force` (same known `DEC-008` gap as Phase 4 — `atexit` cleanup did not
+  run), leaving two orphaned `corpus_doc_*` temp directories (9.23 MB each), removed by
+  hand.
+
+**Deployment status:** NOT IMPLEMENTED. Both apps run locally only, per this phase's
+explicit instruction not to begin deployment.
+
+**Known issues / limitations:**
+- CORS origin allow-list defaults to port 3000; if the frontend dev server has to move
+  to a different port (as it did in this very session), `CORPUS_ALLOWED_ORIGINS` must
+  be set to match or the browser will get CORS errors. Not fixed generically — would
+  require either a wildcard (rejected as a weaker default) or documenting the override,
+  which is what was done (`backend/.env.example`, `backend/README.md`).
+- No automated test exercises the real upload→extract or page-image `fetch` flow
+  end-to-end (see Tests performed, above) — covered by manual browser testing instead
+  for this phase.
+- "Expired document" and "unavailable page" error UI were not directly re-triggered
+  live in this session (see above) — same rendering code path as the demonstrated
+  "invalid PDF" case, not independently re-verified live.
+- Large pages (RIL: 800–1400 words) render that many SVG `<rect>` elements per page;
+  performant in this manual test but not load-tested against a much larger document.
+- Same `DEC-008` force-kill cleanup gap as Phase 4, reconfirmed in this session.
+- No automated end-to-end (e.g. Playwright) test exists — this phase's browser
+  verification was done manually, once, interactively.
+
+**Documentation:** `BUILD_LOG.md` (this entry), `REQUIREMENTS.md` (statuses updated —
+see diff), `README.md` (root — frontend section, full local-dev quick start covering
+both servers), `backend/README.md` (CORS env var documented). `DECISIONS.md`
+unchanged — CORS enablement was a mechanical necessity with no meaningful alternative
+to record, not a new architectural decision.
+
+**Next immediate task:** Not started. Deployment (Phase 9 in the original phase
+numbering) is the explicitly named next small task, now that the local app is fully
+working end-to-end.

@@ -1,0 +1,103 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.25rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.meta strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.filename {
+  font-weight: 600;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.navButton {
+  padding: 0.35rem 0.65rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.navButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pageInput {
+  width: 3.5rem;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  text-align: center;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.pageCount {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.quickJumps {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.quickJump {
+  padding: 0.3rem 0.6rem;
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: 0.35rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.quickJump:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.quickJumpActive {
+  border-style: solid;
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.resetButton {
+  padding: 0.35rem 0.65rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}

@@ -13,10 +13,10 @@ status change.
 
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
-| PROD-01 | A user can upload a native-text PDF and see it processed into inspectable, page-located content. | Must | Core Corpus interaction loop for v1. | PLANNED |
-| PROD-02 | A user can view the original source page image alongside extracted content for that page. | Must | Provenance is only trustworthy if the source is visibly checkable. | PARTIALLY IMPLEMENTED — backend can render and serve any page as an image (`FUNC-03`) and the coordinate mapping to extracted regions is verified; no UI exists yet to show it "alongside" anything |
-| PROD-03 | A user can tell where a piece of extracted text came from (page, position). | Must | Core value proposition — "finding with provenance." | PLANNED |
-| PROD-04 | The application is reachable at a public URL a stakeholder can test without local setup. | Must | Explicit stakeholder requirement: "something they can see and test." | PLANNED |
+| PROD-01 | A user can upload a native-text PDF and see it processed into inspectable, page-located content. | Must | Core Corpus interaction loop for v1. | VALIDATED — full browser workflow manually tested against the real RIL PDF, Phase 5 |
+| PROD-02 | A user can view the original source page image alongside extracted content for that page. | Must | Provenance is only trustworthy if the source is visibly checkable. | VALIDATED — `PageViewer` renders the page image with the region overlay side by side with `ProvenancePanel`, Phase 5 |
+| PROD-03 | A user can tell where a piece of extracted text came from (page, position). | Must | Core value proposition — "finding with provenance." | VALIDATED — click-to-inspect provenance panel, manually verified on pages 22 and 81 against known-good bbox values from Phase 4 |
+| PROD-04 | The application is reachable at a public URL a stakeholder can test without local setup. | Must | Explicit stakeholder requirement: "something they can see and test." | PLANNED — local only; deployment is the next task |
 
 ## Functional requirements
 
@@ -27,24 +27,24 @@ status change.
 | FUNC-03 | Backend renders and serves a page image for a given document + page number. | Must | Required for visual inspection (PROD-02). | VALIDATED — `GET /documents/{id}/pages/{n}/image`, verified against the real RIL PDF on pages 22 and 81, including a direct visual crop check that the mapped word coordinates land on the correct text |
 | FUNC-04 | Extraction output includes page-level data: page number, dimensions, word count, char count. | Must | Required data model field (Page). | PARTIALLY IMPLEMENTED — `page_number`, `width`, `height`, `word_count` implemented and validated; `char_count` not implemented (not needed by any Phase 3 consumer yet; trivially derivable from region text later if a real need appears) |
 | FUNC-05 | Extraction output includes word-level regions: text, bounding box, page number, order index. | Must | Required data model field (Region); evidence basis in `[[dec-003-extraction-engine]] `/`[[dec-005-region-granularity]]`. | VALIDATED |
-| FUNC-06 | Frontend lets the user navigate between pages of an uploaded document. | Must | Required for multi-page inspection. | PLANNED |
-| FUNC-07 | Frontend displays extracted regions for the currently viewed page. | Must | Core viewer requirement. | PLANNED |
+| FUNC-06 | Frontend lets the user navigate between pages of an uploaded document. | Must | Required for multi-page inspection. | VALIDATED — prev/next, direct page-number entry, and page 22/81 quick jumps, Phase 5 |
+| FUNC-07 | Frontend displays extracted regions for the currently viewed page. | Must | Core viewer requirement. | VALIDATED — SVG bounding-box overlay + click-to-inspect, Phase 5 |
 
 ## UX requirements
 
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
-| UX-01 | Upload, processing, success, and error states are all visually distinct and clearly communicated. | Must | Explicit brief requirement; "do not fake successful extraction." | PLANNED |
-| UX-02 | The interface communicates what document/page is currently being viewed at all times. | Must | Orientation is required for a multi-page viewer. | PLANNED |
-| UX-03 | The first screen presents a single, obvious primary action (upload) — not a debugging console. | Must | Brief requires "serious early-stage product," not a dev screen. | PLANNED |
-| UX-04 | Oversized or unsupported files are rejected with a clear, specific message before/without attempting extraction. | Must | Required robustness + UX behavior. | PLANNED |
-| UX-05 | Large documents (many pages) remain navigable without the UI becoming unresponsive. | Should | Explicit brief requirement for large files. | PLANNED |
+| UX-01 | Upload, processing, success, and error states are all visually distinct and clearly communicated. | Must | Explicit brief requirement; "do not fake successful extraction." | VALIDATED — distinct uploading/extracting/error UI, real (not simulated) phase transitions, manually verified with a real error case (non-PDF upload) |
+| UX-02 | The interface communicates what document/page is currently being viewed at all times. | Must | Orientation is required for a multi-page viewer. | VALIDATED — persistent document-summary bar shows filename and current/total page at all times |
+| UX-03 | The first screen presents a single, obvious primary action (upload) — not a debugging console. | Must | Brief requires "serious early-stage product," not a dev screen. | VALIDATED |
+| UX-04 | Oversized or unsupported files are rejected with a clear, specific message before/without attempting extraction. | Must | Required robustness + UX behavior. | VALIDATED — manually verified live: non-PDF upload shows "Only .pdf files are accepted." (the backend's own message, unmodified) |
+| UX-05 | Large documents (many pages) remain navigable without the UI becoming unresponsive. | Should | Explicit brief requirement for large files. | PARTIALLY IMPLEMENTED — the 147-page, up-to-1394-word-per-page RIL document navigated smoothly in manual testing; not load-tested against a larger document |
 
 ## Technical requirements
 
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
-| TECH-01 | Frontend: Next.js + TypeScript. | Must | `[[dec-001-frontend-framework]]`. | ACCEPTED (decision), PLANNED (build) |
+| TECH-01 | Frontend: Next.js + TypeScript. | Must | `[[dec-001-frontend-framework]]`. | ACCEPTED (decision), VALIDATED (build) — full app built and manually tested end-to-end against the live backend, Phase 5 |
 | TECH-02 | Backend: Python + FastAPI. | Must | `[[dec-002-backend-framework]]`. | ACCEPTED (decision), IN PROGRESS (build) — `/health`, `/extract`, and `/documents/{id}/pages/{n}/image` implemented and validated |
 | TECH-03 | Communication over HTTP/JSON only. | Must | Brief requirement; keeps frontend/backend independently replaceable. | VALIDATED |
 | TECH-04 | No persistent database in v1. | Must (constraint) | `[[dec-004-no-database]]`. | ACCEPTED (decision), VALIDATED (build) — no database exists anywhere in the stack; successful uploads are retained ephemerally (temp directory, 30-min TTL, in-memory index — see `[[dec-008-ephemeral-document-retention]]`), not in any database, and are deleted, not archived, on expiry |
@@ -73,7 +73,7 @@ status change.
 |---|---|---|---|---|
 | DEPLOY-01 | Frontend deployable to Vercel (or documented alternative if a strong reason emerges). | Must | Brief's preferred direction; no reason yet to deviate. | PLANNED |
 | DEPLOY-02 | Backend deployable to a simple Python hosting platform. | Must | Brief requirement; specific platform is an open question (`[[dec-007-test-fixture-source]]` area, see DECISIONS.md open questions). | PLANNED |
-| DEPLOY-03 | No secrets committed to the repository; `.env.example` documents required environment variables. | Must | Explicit brief + general security requirement. | PLANNED |
+| DEPLOY-03 | No secrets committed to the repository; `.env.example` documents required environment variables. | Must | Explicit brief + general security requirement. | IMPLEMENTED — `backend/.env.example` (`CORPUS_ALLOWED_ORIGINS`) and `frontend/.env.example` (`NEXT_PUBLIC_API_BASE_URL`) both added Phase 5; no secrets exist in the app yet to leak |
 | DEPLOY-04 | Deployed frontend and backend can communicate with each other over the public internet. | Must | Explicit acceptance criterion. | PLANNED |
 
 ## Non-functional requirements

@@ -1,0 +1,51 @@
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  padding: 1.25rem;
+  height: fit-content;
+}
+
+.title {
+  margin: 0 0 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.empty {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.text {
+  font-size: 1.05rem;
+  font-weight: 600;
+  padding: 0.6rem 0.7rem;
+  background: var(--color-bg);
+  border-radius: 0.4rem;
+  margin-bottom: 1rem;
+  word-break: break-word;
+}
+
+.rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  row-gap: 0.5rem;
+  column-gap: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.label {
+  color: var(--color-text-muted);
+}
+
+.value {
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.confidenceNull {
+  font-family: var(--font-sans);
+  font-style: italic;
+  color: var(--color-text-muted);
+}
