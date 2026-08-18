@@ -3,8 +3,9 @@
 Statuses: `PROPOSED`, `PLANNED`, `IN PROGRESS`, `IMPLEMENTED`, `VALIDATED`, `REJECTED`,
 `DEFERRED`.
 
-All requirements below are `PLANNED` unless stated otherwise — no application code has
-been written yet as of this document's creation (Phase 0/1, 2026-08-18).
+Status column reflects actual implementation state as of the date noted per section edit
+— not aspirational. See `BUILD_LOG.md` for full session-by-session detail behind each
+status change.
 
 ---
 
@@ -21,11 +22,11 @@ been written yet as of this document's creation (Phase 0/1, 2026-08-18).
 
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
-| FUNC-01 | `POST /extract` (or equivalent) accepts a PDF upload and returns structured JSON (document, pages, regions). | Must | API contract for the vertical slice. | PLANNED |
+| FUNC-01 | `POST /extract` (or equivalent) accepts a PDF upload and returns structured JSON (document, pages, regions). | Must | API contract for the vertical slice. | VALIDATED |
 | FUNC-02 | `GET /health` returns backend liveness status. | Must | Deployment/ops baseline, explicitly required. | VALIDATED |
 | FUNC-03 | Backend renders and serves a page image for a given document + page number. | Must | Required for visual inspection (PROD-02). | PLANNED |
-| FUNC-04 | Extraction output includes page-level data: page number, dimensions, word count, char count. | Must | Required data model field (Page). | PLANNED |
-| FUNC-05 | Extraction output includes word-level regions: text, bounding box, page number, order index. | Must | Required data model field (Region); evidence basis in `[[dec-003-extraction-engine]] `/`[[dec-005-region-granularity]]`. | PLANNED |
+| FUNC-04 | Extraction output includes page-level data: page number, dimensions, word count, char count. | Must | Required data model field (Page). | PARTIALLY IMPLEMENTED — `page_number`, `width`, `height`, `word_count` implemented and validated; `char_count` not implemented (not needed by any Phase 3 consumer yet; trivially derivable from region text later if a real need appears) |
+| FUNC-05 | Extraction output includes word-level regions: text, bounding box, page number, order index. | Must | Required data model field (Region); evidence basis in `[[dec-003-extraction-engine]] `/`[[dec-005-region-granularity]]`. | VALIDATED |
 | FUNC-06 | Frontend lets the user navigate between pages of an uploaded document. | Must | Required for multi-page inspection. | PLANNED |
 | FUNC-07 | Frontend displays extracted regions for the currently viewed page. | Must | Core viewer requirement. | PLANNED |
 
@@ -44,27 +45,27 @@ been written yet as of this document's creation (Phase 0/1, 2026-08-18).
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
 | TECH-01 | Frontend: Next.js + TypeScript. | Must | `[[dec-001-frontend-framework]]`. | ACCEPTED (decision), PLANNED (build) |
-| TECH-02 | Backend: Python + FastAPI. | Must | `[[dec-002-backend-framework]]`. | ACCEPTED (decision), IN PROGRESS (build) — minimal app + `/health` implemented and validated; extraction endpoints not yet built |
-| TECH-03 | Communication over HTTP/JSON only. | Must | Brief requirement; keeps frontend/backend independently replaceable. | VALIDATED (for `/health`; not yet exercised by extraction endpoints) |
-| TECH-04 | No persistent database in v1. | Must (constraint) | `[[dec-004-no-database]]`. | ACCEPTED (decision) |
-| TECH-05 | API response schema must not be UI-specific — structured JSON that could serve a different frontend. | Must | Explicit brief requirement (API design). | PLANNED |
+| TECH-02 | Backend: Python + FastAPI. | Must | `[[dec-002-backend-framework]]`. | ACCEPTED (decision), IN PROGRESS (build) — `/health` and `/extract` implemented and validated; no other endpoints planned yet |
+| TECH-03 | Communication over HTTP/JSON only. | Must | Brief requirement; keeps frontend/backend independently replaceable. | VALIDATED |
+| TECH-04 | No persistent database in v1. | Must (constraint) | `[[dec-004-no-database]]`. | ACCEPTED (decision), VALIDATED (build) — `/extract` processes uploads entirely in memory, nothing persisted |
+| TECH-05 | API response schema must not be UI-specific — structured JSON that could serve a different frontend. | Must | Explicit brief requirement (API design). | VALIDATED — `Document → Page → Region → text/bbox` shape has no UI-specific fields |
 
 ## Provenance requirements
 
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
-| PROV-01 | Every extracted Region must carry: document, page number, bounding box, extracted text, extraction method. | Must | Explicit minimum provenance fields from brief. | PLANNED |
-| PROV-02 | Confidence values must never be invented — omit the field where the extractor does not provide one. | Must | Explicit brief instruction; pdfplumber native-text extraction has no native confidence score. | PLANNED |
-| PROV-03 | Region ordering, where available from the extractor, must be preserved and exposed (not silently discarded). | Should | Supports future reading-order/grouping work without re-extracting. | PLANNED |
+| PROV-01 | Every extracted Region must carry: document, page number, bounding box, extracted text, extraction method. | Must | Explicit minimum provenance fields from brief. | VALIDATED — `page_number`, `bbox`, `text`, `extraction_method` are fields on every `Region`; document identity is carried by nesting (`Region` only ever appears inside a `DocumentExtractionResponse`), not as a repeated per-region field — a deliberate, minimal design choice, not an oversight |
+| PROV-02 | Confidence values must never be invented — omit the field where the extractor does not provide one. | Must | Explicit brief instruction; pdfplumber native-text extraction has no native confidence score. | VALIDATED — `Region.confidence` is always `null`, asserted by test |
+| PROV-03 | Region ordering, where available from the extractor, must be preserved and exposed (not silently discarded). | Should | Supports future reading-order/grouping work without re-extracting. | VALIDATED — `order_index` preserves pdfplumber's natural word order, asserted by test |
 
 ## Extraction requirements
 
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
-| EXT-01 | v1 extraction engine is pdfplumber, word-level (`extract_words()`), default settings. | Must | `[[dec-003-extraction-engine]]`. | ACCEPTED (decision) |
-| EXT-02 | v1 does not use pdfplumber's default table detection (`find_tables()`). | Must (constraint) | Experiment 1 showed default table detection unreliable in both directions. | ACCEPTED (decision) |
-| EXT-03 | v1 does not perform OCR of any kind. | Must (constraint) | Explicit brief instruction — scanned PDFs out of scope for v1. | ACCEPTED (decision) |
-| EXT-04 | Extraction failures on a given document/page must be surfaced, not silently swallowed into empty results. | Must | "Do not fake successful extraction." | PLANNED |
+| EXT-01 | v1 extraction engine is pdfplumber, word-level (`extract_words()`), default settings. | Must | `[[dec-003-extraction-engine]]`. | ACCEPTED (decision), VALIDATED (build) — reproduces Experiment 1's exact word counts on all 7 representative pages |
+| EXT-02 | v1 does not use pdfplumber's default table detection (`find_tables()`). | Must (constraint) | Experiment 1 showed default table detection unreliable in both directions. | ACCEPTED (decision), VALIDATED (build) — `find_tables()` is not called anywhere in `app/extraction.py` |
+| EXT-03 | v1 does not perform OCR of any kind. | Must (constraint) | Explicit brief instruction — scanned PDFs out of scope for v1. | ACCEPTED (decision), VALIDATED (build) |
+| EXT-04 | Extraction failures on a given document/page must be surfaced, not silently swallowed into empty results. | Must | "Do not fake successful extraction." | VALIDATED — malformed PDFs return `422`, not a fake empty success; tested |
 
 ## Deployment requirements
 
@@ -79,12 +80,12 @@ been written yet as of this document's creation (Phase 0/1, 2026-08-18).
 
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
-| NFR-01 | Uploaded file type is validated server-side (not just by file extension/UI). | Must | Security/robustness requirement. | PLANNED |
-| NFR-02 | Upload size is limited server-side. | Must | Security/robustness requirement. | PLANNED |
-| NFR-03 | Uploaded filenames are sanitized before any filesystem use. | Must | Security requirement — path traversal prevention. | PLANNED |
-| NFR-04 | Server filesystem paths are never exposed in API responses or error messages. | Must | Security requirement. | PLANNED |
-| NFR-05 | Malformed PDFs are handled gracefully (clear error, no crash, no stack trace leaked to client). | Must | Explicit brief requirement. | PLANNED |
-| NFR-06 | Automated tests cover: health endpoint, PDF validation, extraction, page extraction, word/region extraction, malformed input, unsupported file type, empty extraction, API response structure. | Must | Explicit brief testing checklist. | PLANNED |
+| NFR-01 | Uploaded file type is validated server-side (not just by file extension/UI). | Must | Security/robustness requirement. | VALIDATED — extension check + `%PDF-` magic-byte check, both server-side; tested |
+| NFR-02 | Upload size is limited server-side. | Must | Security/robustness requirement. | VALIDATED — 20 MB cap enforced via chunked read, returns `413`; tested |
+| NFR-03 | Uploaded filenames are sanitized before any filesystem use. | Must | Security requirement — path traversal prevention. | IMPLEMENTED — filename reduced to its basename (`Path(name).name`) before use/echo; note the uploaded file itself is never written to disk in Phase 3 (in-memory only), so this is defense-in-depth rather than a live path-traversal vector today |
+| NFR-04 | Server filesystem paths are never exposed in API responses or error messages. | Must | Security requirement. | VALIDATED — asserted by test that no server path appears in error responses |
+| NFR-05 | Malformed PDFs are handled gracefully (clear error, no crash, no stack trace leaked to client). | Must | Explicit brief requirement. | VALIDATED |
+| NFR-06 | Automated tests cover: health endpoint, PDF validation, extraction, page extraction, word/region extraction, malformed input, unsupported file type, empty extraction, API response structure. | Must | Explicit brief testing checklist. | VALIDATED — all nine areas covered across `test_health.py` + `test_extract.py` (13 tests total, all passing) |
 
 ## Explicit non-requirements (v1)
 

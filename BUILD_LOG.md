@@ -127,3 +127,139 @@ exists yet.
 **Next immediate task:** Begin PDF upload/extraction work (`POST /extract` with
 pdfplumber word-level regions, per `DEC-003`/`DEC-005`) as its own phase — not started in
 this session.
+
+---
+
+## 2026-08-18 — Phase 3: PDF extraction API (`POST /extract`)
+
+**Task:** Build the smallest complete vertical slice for PDF upload → validation →
+pdfplumber word-level extraction → structured JSON, per `DEC-003`/`DEC-005`. No frontend,
+no deployment, no persistent storage.
+
+**What was built:**
+- `backend/app/models.py` — `BoundingBox`, `Region` (`text`, `bbox`, `page_number`,
+  `order_index`, `extraction_method`, `confidence: Optional[float] = None`),
+  `PageExtraction` (`page_number`, `width`, `height`, `word_count`, `regions`),
+  `DocumentExtractionResponse` (`filename`, `page_count`, `extraction_method`,
+  `extraction_engine_version`, `pages`). Shape is `Document → Page → Region → text+bbox`
+  as specified.
+- `backend/app/extraction.py` — `extract_document(filename, pdf_bytes)`. Opens the PDF
+  from an in-memory `io.BytesIO` buffer (never written to disk — see storage note
+  below), iterates `pdf.pages`, and calls `page.extract_words(use_text_flow=False,
+  keep_blank_chars=False)` per page — the exact same call signature Experiment 1 used
+  (`../poc-01/scripts/extract_pdfplumber.py`), so results are directly comparable to
+  the existing research. Does not call `extract_text()` or `find_tables()`. Any
+  exception during open or extraction is wrapped as `InvalidPDFError` (internal
+  exception details are never propagated to the HTTP layer).
+- `backend/app/main.py` — added `POST /extract` (`UploadFile`, field name `file`):
+  validates extension → reads upload in 1 MB chunks capped at
+  `MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024` (413 if exceeded) → checks the `%PDF-`
+  magic bytes (400 if absent) → sanitizes the filename to its basename
+  (`Path(name).name`) before use → calls `extract_document` (422 on `InvalidPDFError`,
+  generic message, no internals leaked).
+- `backend/tests/pdf_fixtures.py` — a hand-built, dependency-free minimal-PDF byte
+  generator (`build_minimal_pdf`) used to produce four deterministic fixtures at test
+  time: a valid one-page PDF containing "Hello World", a valid PDF with a blank/empty
+  content stream, a `%PDF-`-prefixed-but-malformed byte string, and plain non-PDF bytes.
+  No binary files committed to the repo.
+- `backend/tests/test_extract.py` — 11 tests (see below).
+- Added `pdfplumber==0.11.10` (same version Experiment 1 used) and
+  `python-multipart==0.0.32` (required by Starlette for multipart file-upload parsing)
+  to `backend/requirements.txt`.
+- `backend/README.md` — documented `POST /extract` (curl example, validation order,
+  full response shape example, and the synchronous-processing-time limitation).
+
+**Storage approach:** The uploaded file is held only in memory for the duration of the
+request (`io.BytesIO`, never written to disk) and discarded once the response is
+returned — nothing is persisted. This satisfies "do not permanently store uploaded
+documents yet" more strongly than a temp-file approach would (no filesystem path ever
+exists for uploaded content, so there is nothing to clean up and no path-exposure
+surface). This does not contradict `DEC-004` (no persistent database) — `DEC-004`
+concerns the app's storage model for a document a user is actively viewing across
+multiple requests (Phase 5/6 page-image serving), which does not exist yet. No new
+`DECISIONS.md` entry was needed.
+
+**Files added/modified:**
+- `backend/app/models.py` (new)
+- `backend/app/extraction.py` (new)
+- `backend/app/main.py` (modified — added `POST /extract` and the chunked-read helper;
+  `GET /health` untouched)
+- `backend/tests/pdf_fixtures.py` (new)
+- `backend/tests/test_extract.py` (new)
+- `backend/requirements.txt` (modified — added `pdfplumber`, `python-multipart`)
+- `backend/README.md` (modified — added API documentation section)
+
+**Behaviour added/changed:** Backend now accepts a PDF upload and returns real
+word-level extraction with bounding boxes, page dimensions, and provenance fields for
+every word on every page. Errors are validated and reported cleanly at each stage
+(wrong extension, non-PDF content, malformed PDF, oversized upload).
+
+**Tests performed:**
+- `pytest -v` in `backend/`: **13 passed, 0 failed** (11 new in `test_extract.py` + the
+  2 pre-existing `test_health.py` tests, run together as the full suite). Covers: valid
+  PDF → 200; top-level response structure; page metadata (`page_number`, `width`,
+  `height`, `word_count`); region text and order matches source words; bounding boxes
+  present and internally consistent (`x0 < x1`, `top < bottom`); `confidence` always
+  `null`; blank-page PDF → 200 with empty `regions`; non-`.pdf` extension → 400;
+  non-PDF content with a `.pdf` name → 400; malformed-but-`%PDF-`-prefixed content →
+  422; error responses contain no traceback/internal-library names/filesystem paths;
+  oversized upload (limit monkeypatched to 10 bytes for the test) → 413.
+- Same non-blocking `StarletteDeprecationWarning` (httpx/httpx2) as Phase 2, unchanged.
+
+**Manual verification (local server):**
+- Started `uvicorn app.main:app` locally; confirmed `/health` still 200 before testing.
+- `curl -F "file=@manual_test.pdf"` (generated from the same fixture builder) → `200`,
+  correct JSON: 1 page, 200×200, 2 regions (`"Hello"`, `"World"`) with plausible,
+  ordered bounding boxes.
+- Non-PDF content uploaded as `.pdf` → `400 Uploaded file is not a valid PDF.`
+- Malformed `%PDF-`-prefixed content → `422 The PDF could not be processed...`.
+- Wrong extension (`.txt`) → `400 Only .pdf files are accepted.`
+- Server stopped cleanly after testing; confirmed unreachable afterward.
+
+**Manual RIL validation (read-only, `../poc-01/documents/native/RIL_IAR 2026.pdf`,
+9.68 MB, never copied into this repo):**
+- Uploaded via `curl` directly from its location in `../poc-01/`. `200 OK` in
+  **75.6 seconds** for all 147 pages (word-level only — no text/table extraction, so
+  faster than Experiment 1's combined 58 s figure is not directly comparable, but same
+  order of magnitude for a document this size).
+- Response: `filename: "RIL_IAR 2026.pdf"`, `page_count: 147`,
+  `extraction_method: "pdfplumber_extract_words"`, `extraction_engine_version: "0.11.10"`
+  (identical pdfplumber version to Experiment 1).
+- Checked all seven representative pages (4, 5, 8, 22, 45, 60, 81): page dimensions are
+  1190.55 × 841.89 pt on every page checked, matching Experiment 1's documented
+  two-page-spread geometry. **Word counts matched Experiment 1's recorded values
+  exactly on all seven pages** (4→1129, 5→1290, 8→858, 22→1394, 45→1140, 60→803,
+  81→569 — cross-checked directly against
+  `../poc-01/outputs/2026-08-17_pdfplumber_RIL_IAR_2026/inspection.json`), confirming
+  this endpoint reproduces Experiment 1's extraction methodology exactly, not just
+  approximately.
+- Spot-checked region text/order on each page's first few words — reading order and
+  bounding boxes look correct for in-column headings (e.g. page 4: "Chairman" → "and" →
+  "Managing"). Page 45 shows a corrupted apostrophe glyph ("Board�s") — this is expected
+  and consistent with Experiment 1's documented glyph-corruption finding; per
+  requirement, this was **not** fixed or normalized — the raw word-level evidence is
+  preserved faithfully.
+- Did not verify multi-column reading-order scrambling, table fragmentation, or ₹
+  corruption in detail beyond this — those are already-documented Experiment 1 findings
+  this phase deliberately does not attempt to fix, and re-auditing them was out of scope
+  for Phase 3's endpoint-correctness check.
+
+**Deployment status:** NOT IMPLEMENTED. Local only, per Phase 3 scope.
+
+**Known issues / limitations:**
+- Extraction is fully synchronous; a ~150-page real document takes over a minute with
+  no progress feedback. Acceptable for this phase; will need addressing (background
+  processing or at least a "processing" UI state) once a frontend exists.
+- No per-page partial-failure tolerance: if any single page throws during extraction,
+  the entire request fails with `422` rather than returning partial results for the
+  pages that succeeded. Not exercised by real data in this session's manual test since
+  the RIL document extracted without error, matching Experiment 1's own "0 exceptions"
+  finding.
+- Same pre-existing `StarletteDeprecationWarning` as Phase 2 (httpx/httpx2), unchanged.
+- `.env.example` still not added — still no environment variables exist in the running
+  application (`MAX_UPLOAD_SIZE_BYTES` etc. are code constants, not env-configured, in
+  this phase).
+
+**Next immediate task:** Phase 4 (or equivalent) — begin the frontend, or extend the
+backend with page-image rendering to support visual inspection (`FUNC-03`) — not started
+in this session. Decision on which comes first is open.
