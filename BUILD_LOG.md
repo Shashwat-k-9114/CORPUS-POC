@@ -263,3 +263,152 @@ every word on every page. Errors are validated and reported cleanly at each stag
 **Next immediate task:** Phase 4 (or equivalent) — begin the frontend, or extend the
 backend with page-image rendering to support visual inspection (`FUNC-03`) — not started
 in this session. Decision on which comes first is open.
+
+---
+
+## 2026-08-18 — Phase 4: page-image rendering endpoint
+
+**Task:** Make extraction output visually inspectable without a database or permanent
+storage. `POST /extract` previously processed uploads entirely in memory and discarded
+them; a page-image endpoint needs the PDF to still exist somewhere after that response,
+so this phase adds bounded, ephemeral, ID-keyed temporary retention plus a page-image
+endpoint. No frontend, no deployment.
+
+**What was built:**
+- `backend/app/storage.py` — in-memory `dict[str, DocumentRecord]` registry.
+  `store_document(document_id, pdf_bytes, original_filename, page_count)` writes the PDF
+  to a fresh `tempfile.mkdtemp(prefix="corpus_doc_")` directory as a fixed internal
+  filename (`document.pdf` — never the client-supplied name). `get_document(document_id)`
+  looks it up by dict key only — `document_id` is never concatenated into a filesystem
+  path, so it cannot be used for path traversal regardless of its content.
+  `DOCUMENT_TTL_SECONDS = 1800` (30 min); `_sweep_expired()` runs at the start of every
+  `store_document`/`get_document` call and deletes (registry entry + temp directory) for
+  anything past its TTL. `clear_all()` is a test/introspection helper also registered via
+  `atexit` for normal-exit cleanup. See `DEC-008` for the full rationale and a real gap
+  this session found (see Known issues below).
+- `backend/app/rendering.py` — `render_page_png(pdf_path, page_number, resolution=150)`.
+  Opens the stored PDF fresh with pdfplumber, calls `page.to_image(resolution=150)`
+  (same call and same default resolution as `../poc-01/scripts/render_pages.py`), saves
+  to PNG bytes, and returns `(png_bytes, image_width_px, image_height_px, page_width_pt,
+  page_height_pt)`. No new dependency — `to_image()` is already available via
+  `pdfplumber`'s existing `pypdfium2` dependency.
+- `backend/app/models.py` — added `document_id: str` to `DocumentExtractionResponse`.
+- `backend/app/extraction.py` — `extract_document()` now takes a `document_id`
+  parameter and threads it into the response unchanged; the word-extraction call itself
+  (`page.extract_words(use_text_flow=False, keep_blank_chars=False)`) was **not**
+  touched.
+- `backend/app/main.py`:
+  - `POST /extract` now generates `document_id = uuid.uuid4().hex` before extraction,
+    and — only on successful extraction — calls `storage.store_document(...)` so nothing
+    is retained for a request that fails validation or extraction.
+  - New `GET /documents/{document_id}/pages/{page_number}/image`: looks up the document
+    (`404` if unknown/expired — the two are not distinguished in the response), validates
+    `page_number >= 1` (`400`) and `page_number <= page_count` (`404`), renders via
+    `render_page_png` (`422` on render failure, generic message), and returns the PNG
+    with `X-Page-Number`, `X-Page-Width-Points`, `X-Page-Height-Points`,
+    `X-Image-Width-Px`, `X-Image-Height-Px`, `X-Resolution-Dpi` headers so the
+    point→pixel coordinate mapping is discoverable from the response itself, not just
+    from documentation.
+- `backend/tests/test_page_image.py` — 8 new tests (see below).
+- `backend/tests/test_extract.py` — added a `document_id` presence/non-emptiness
+  assertion to the existing structure test (the only change to an existing test; all
+  other Phase 3 tests untouched and still pass).
+- `backend/README.md` — documented the new endpoint, its validation order, response
+  headers, and the coordinate-system relationship explicitly (point→pixel formula,
+  no flip, uniform scale).
+- `DECISIONS.md` — added `DEC-008` (ephemeral retention mechanism: lazy TTL sweep,
+  no background scheduler, `atexit` for normal exit).
+
+**No new dependency was added.** Rendering uses `pdfplumber`/`pypdfium2`, already
+installed in Phase 3.
+
+**Files added/modified:**
+- `backend/app/storage.py` (new)
+- `backend/app/rendering.py` (new)
+- `backend/tests/test_page_image.py` (new)
+- `backend/app/models.py` (modified — added `document_id`)
+- `backend/app/extraction.py` (modified — `document_id` pass-through only)
+- `backend/app/main.py` (modified — `/extract` now stores on success; added the image
+  endpoint)
+- `backend/tests/test_extract.py` (modified — one added assertion)
+- `backend/README.md` (modified — new endpoint section)
+- `DECISIONS.md` (modified — added `DEC-008`, renumbered the still-open deployment
+  decision from `DEC-008` to `DEC-009` in the open-questions note)
+- `REQUIREMENTS.md` (modified — see status changes below)
+
+**Behaviour added/changed:** A successful `POST /extract` now returns a `document_id`
+and causes the uploaded PDF to be retained server-side (temp directory) for up to 30
+minutes. `GET /documents/{document_id}/pages/{page_number}/image` renders any page of a
+currently-retained document as a PNG at 150 DPI.
+
+**Tests performed:**
+- `pytest -v` in `backend/`: **21 passed, 0 failed** (11 Phase 3 `test_extract.py` + 2
+  `test_health.py` + 8 new `test_page_image.py`). New tests cover: successful extraction
+  creates a retrievable `document_id`; valid page-image request → `200`; content type is
+  `image/png` (also asserts PNG magic bytes on the body); unknown document ID → `404`;
+  page number `0` → `400`; page number beyond the document's page count → `404`; response
+  headers correctly describe the point→pixel mapping (asserted numerically against the
+  known 200×200pt fixture page at 150 DPI, and that a square page renders to a square
+  image); and document cleanup — after forcing `DOCUMENT_TTL_SECONDS` to `-1` via
+  `monkeypatch`, `storage.get_document()` returns `None`, the temp directory no longer
+  exists on disk, and the image endpoint returns `404` for that now-expired document.
+  Same pre-existing httpx/httpx2 deprecation warning, unchanged.
+
+**Manual verification (local server):**
+- Started `uvicorn app.main:app`; confirmed `/health` still `200` first.
+- Uploaded the real RIL PDF (see below) to obtain a real multi-page `document_id`.
+- `GET /documents/{id}/pages/22/image` and `.../pages/81/image` (the two "structurally
+  difficult" representative pages named in this phase's instructions) → both `200`,
+  `image/png`, headers: `x-page-width-points: 1190.55`, `x-page-height-points: 841.89`,
+  `x-image-width-px: 2481`, `x-image-height-px: 1754`, `x-resolution-dpi: 150` — matches
+  the documented two-page-spread geometry from Experiment 1 exactly, and
+  `2481/1754 ≈ 1190.55/841.89` (aspect ratio preserved).
+- Error cases: unknown document ID → `404`; page `0` → `400`; page `9999` (document has
+  147 pages) → `404 Page 9999 does not exist. This document has 147 pages.`.
+- Downloaded both PNGs, opened with Pillow: correct pixel dimensions, non-blank
+  (grayscale value range `0–255` on both, i.e. real content, not a blank/white canvas).
+- **Coordinate-mapping check (page 22):** took the first word from `POST /extract`'s
+  page-22 regions (`"Integrated"`, bbox `x0=51.0 x1=108.06 top=44.34 bottom=53.34` pt),
+  applied the documented `pixel = point * (150/72)` formula, cropped the rendered image
+  at the resulting pixel region (plus margin) — the crop visually shows the literal text
+  "Integrated Approach to Sustainable..." exactly where the mapped bounding box placed
+  it. This is a direct, positive visual confirmation that `POST /extract`'s coordinates
+  and this endpoint's rendered image are in exact correspondence (requirement 8).
+- Also visually reviewed a downsized full render of page 81 (printed pages 158–159):
+  correctly shows the two side-by-side related-party-transaction tables — this is the
+  exact page Experiment 1 flagged as its "worst table failure" case, confirming the
+  rendering is legible and correctly oriented on a genuinely difficult layout, even
+  though this phase does nothing to fix (and was not asked to fix) the underlying table
+  extraction problem.
+- Server stopped after testing.
+
+**Manual RIL validation (read-only, `../poc-01/documents/native/RIL_IAR 2026.pdf`, never
+copied into this repo):** covered above — pages 22 and 81 rendered correctly, at
+2481×1754 px, with coordinate mapping verified both numerically and by visual crop.
+
+**Deployment status:** NOT IMPLEMENTED. Local only, per Phase 4 scope.
+
+**Known issues / limitations:**
+- **`atexit`-based cleanup does not run on a forceful process kill.** Discovered
+  directly in this session: stopping the manually-started dev server with `Stop-Process
+  -Force` left a 9.23 MB orphaned `corpus_doc_*` temp directory (a full copy of the RIL
+  PDF) on disk, which had to be removed by hand. A graceful stop (Ctrl+C/SIGINT) does
+  trigger `atexit` correctly. Recorded as a real consequence in `DEC-008`; needs
+  revisiting before real deployment (Phase 9).
+- No per-request resolution parameter — rendering is fixed at 150 DPI. Not needed yet;
+  would be a small, additive change if a future frontend wants e.g. a lower-res
+  thumbnail.
+- The image endpoint does not distinguish "document ID never existed" from "document ID
+  expired" in its `404` response — deliberate (avoids leaking which IDs were ever
+  valid), but means a stakeholder seeing a `404` after 30 minutes of inactivity won't
+  get an explicit "your session expired" message. Acceptable for this phase; would want
+  addressing once a frontend exists (`UX-01`-adjacent).
+- No per-page partial-render fallback: if `render_page_png` fails for any reason, the
+  whole request fails `422` — consistent with the same simplicity tradeoff already made
+  for extraction failures in Phase 3.
+- Same pre-existing `StarletteDeprecationWarning` (httpx/httpx2) as Phases 2–3,
+  unchanged.
+
+**Next immediate task:** Not started. Open choice for Phase 5: begin the frontend (now
+that both extraction and page-image endpoints exist to build a viewer against), or
+continue backend-only work. No decision made in this session.

@@ -14,7 +14,7 @@ status change.
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
 | PROD-01 | A user can upload a native-text PDF and see it processed into inspectable, page-located content. | Must | Core Corpus interaction loop for v1. | PLANNED |
-| PROD-02 | A user can view the original source page image alongside extracted content for that page. | Must | Provenance is only trustworthy if the source is visibly checkable. | PLANNED |
+| PROD-02 | A user can view the original source page image alongside extracted content for that page. | Must | Provenance is only trustworthy if the source is visibly checkable. | PARTIALLY IMPLEMENTED — backend can render and serve any page as an image (`FUNC-03`) and the coordinate mapping to extracted regions is verified; no UI exists yet to show it "alongside" anything |
 | PROD-03 | A user can tell where a piece of extracted text came from (page, position). | Must | Core value proposition — "finding with provenance." | PLANNED |
 | PROD-04 | The application is reachable at a public URL a stakeholder can test without local setup. | Must | Explicit stakeholder requirement: "something they can see and test." | PLANNED |
 
@@ -24,7 +24,7 @@ status change.
 |---|---|---|---|---|
 | FUNC-01 | `POST /extract` (or equivalent) accepts a PDF upload and returns structured JSON (document, pages, regions). | Must | API contract for the vertical slice. | VALIDATED |
 | FUNC-02 | `GET /health` returns backend liveness status. | Must | Deployment/ops baseline, explicitly required. | VALIDATED |
-| FUNC-03 | Backend renders and serves a page image for a given document + page number. | Must | Required for visual inspection (PROD-02). | PLANNED |
+| FUNC-03 | Backend renders and serves a page image for a given document + page number. | Must | Required for visual inspection (PROD-02). | VALIDATED — `GET /documents/{id}/pages/{n}/image`, verified against the real RIL PDF on pages 22 and 81, including a direct visual crop check that the mapped word coordinates land on the correct text |
 | FUNC-04 | Extraction output includes page-level data: page number, dimensions, word count, char count. | Must | Required data model field (Page). | PARTIALLY IMPLEMENTED — `page_number`, `width`, `height`, `word_count` implemented and validated; `char_count` not implemented (not needed by any Phase 3 consumer yet; trivially derivable from region text later if a real need appears) |
 | FUNC-05 | Extraction output includes word-level regions: text, bounding box, page number, order index. | Must | Required data model field (Region); evidence basis in `[[dec-003-extraction-engine]] `/`[[dec-005-region-granularity]]`. | VALIDATED |
 | FUNC-06 | Frontend lets the user navigate between pages of an uploaded document. | Must | Required for multi-page inspection. | PLANNED |
@@ -45,9 +45,9 @@ status change.
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
 | TECH-01 | Frontend: Next.js + TypeScript. | Must | `[[dec-001-frontend-framework]]`. | ACCEPTED (decision), PLANNED (build) |
-| TECH-02 | Backend: Python + FastAPI. | Must | `[[dec-002-backend-framework]]`. | ACCEPTED (decision), IN PROGRESS (build) — `/health` and `/extract` implemented and validated; no other endpoints planned yet |
+| TECH-02 | Backend: Python + FastAPI. | Must | `[[dec-002-backend-framework]]`. | ACCEPTED (decision), IN PROGRESS (build) — `/health`, `/extract`, and `/documents/{id}/pages/{n}/image` implemented and validated |
 | TECH-03 | Communication over HTTP/JSON only. | Must | Brief requirement; keeps frontend/backend independently replaceable. | VALIDATED |
-| TECH-04 | No persistent database in v1. | Must (constraint) | `[[dec-004-no-database]]`. | ACCEPTED (decision), VALIDATED (build) — `/extract` processes uploads entirely in memory, nothing persisted |
+| TECH-04 | No persistent database in v1. | Must (constraint) | `[[dec-004-no-database]]`. | ACCEPTED (decision), VALIDATED (build) — no database exists anywhere in the stack; successful uploads are retained ephemerally (temp directory, 30-min TTL, in-memory index — see `[[dec-008-ephemeral-document-retention]]`), not in any database, and are deleted, not archived, on expiry |
 | TECH-05 | API response schema must not be UI-specific — structured JSON that could serve a different frontend. | Must | Explicit brief requirement (API design). | VALIDATED — `Document → Page → Region → text/bbox` shape has no UI-specific fields |
 
 ## Provenance requirements
@@ -82,8 +82,8 @@ status change.
 |---|---|---|---|---|
 | NFR-01 | Uploaded file type is validated server-side (not just by file extension/UI). | Must | Security/robustness requirement. | VALIDATED — extension check + `%PDF-` magic-byte check, both server-side; tested |
 | NFR-02 | Upload size is limited server-side. | Must | Security/robustness requirement. | VALIDATED — 20 MB cap enforced via chunked read, returns `413`; tested |
-| NFR-03 | Uploaded filenames are sanitized before any filesystem use. | Must | Security requirement — path traversal prevention. | IMPLEMENTED — filename reduced to its basename (`Path(name).name`) before use/echo; note the uploaded file itself is never written to disk in Phase 3 (in-memory only), so this is defense-in-depth rather than a live path-traversal vector today |
-| NFR-04 | Server filesystem paths are never exposed in API responses or error messages. | Must | Security requirement. | VALIDATED — asserted by test that no server path appears in error responses |
+| NFR-03 | Uploaded filenames are sanitized before any filesystem use. | Must | Security requirement — path traversal prevention. | VALIDATED — filename reduced to its basename (`Path(name).name`) for the API response, but the client-supplied name is never used to construct any filesystem path at all: the retained file is always written as a fixed internal name (`document.pdf`) inside a server-generated `tempfile.mkdtemp()` directory (`[[dec-008-ephemeral-document-retention]]`) |
+| NFR-04 | Server filesystem paths are never exposed in API responses or error messages. | Must | Security requirement. | VALIDATED — asserted by test for `/extract`; the image endpoint's error responses (`404`/`400`/`422`) are similarly static/generic and its `document_id` is never a filesystem path (dict key only, per `[[dec-008-ephemeral-document-retention]]`) |
 | NFR-05 | Malformed PDFs are handled gracefully (clear error, no crash, no stack trace leaked to client). | Must | Explicit brief requirement. | VALIDATED |
 | NFR-06 | Automated tests cover: health endpoint, PDF validation, extraction, page extraction, word/region extraction, malformed input, unsupported file type, empty extraction, API response structure. | Must | Explicit brief testing checklist. | VALIDATED — all nine areas covered across `test_health.py` + `test_extract.py` (13 tests total, all passing) |
 

@@ -11,7 +11,7 @@ class InvalidPDFError(Exception):
     pass
 
 
-def extract_document(filename: str, pdf_bytes: bytes) -> DocumentExtractionResponse:
+def extract_document(filename: str, pdf_bytes: bytes, document_id: str) -> DocumentExtractionResponse:
     try:
         pdf = pdfplumber.open(io.BytesIO(pdf_bytes))
     except Exception as exc:
@@ -52,6 +52,7 @@ def extract_document(filename: str, pdf_bytes: bytes) -> DocumentExtractionRespo
         pdf.close()
 
     return DocumentExtractionResponse(
+        document_id=document_id,
         filename=filename,
         page_count=len(pages),
         extraction_method=EXTRACTION_METHOD,

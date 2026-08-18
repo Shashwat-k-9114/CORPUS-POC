@@ -33,6 +33,7 @@ def test_extract_response_has_expected_top_level_structure():
     assert "extraction_engine_version" in body
     assert isinstance(body["pages"], list)
     assert len(body["pages"]) == 1
+    assert isinstance(body["document_id"], str) and len(body["document_id"]) > 0
 
 
 def test_extract_page_metadata_is_correct():

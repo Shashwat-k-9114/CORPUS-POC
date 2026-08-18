@@ -28,6 +28,7 @@ class PageExtraction(BaseModel):
 
 
 class DocumentExtractionResponse(BaseModel):
+    document_id: str
     filename: str
     page_count: int
     extraction_method: str

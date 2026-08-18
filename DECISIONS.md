@@ -230,11 +230,57 @@ skip, not fail, in that case. A small synthetic PDF fixture may be added later, 
 
 ---
 
+## DEC-008 — Ephemeral document retention: generated ID, lazy TTL sweep, no background scheduler
+
+**Date:** 2026-08-18
+**Status:** ACCEPTED
+
+**Context:** `DEC-004` established ephemeral temp-directory storage keyed by a generated
+document ID instead of a database, but did not specify a concrete eviction mechanism.
+Phase 4 needs an uploaded PDF to remain available on disk between the `POST /extract`
+response and later `GET /documents/{id}/pages/{n}/image` requests, for a bounded time,
+without a database, a background job scheduler, or permanent storage.
+
+**Options considered:**
+- A background thread/scheduler that periodically sweeps expired documents — bounds
+  retention even with no further traffic, but adds a moving part (thread lifecycle,
+  startup/shutdown wiring) disproportionate to a single-process prototype.
+- Lazy sweep: check for and evict expired documents inline, at the start of every
+  storage read/write call, before proceeding. No thread, no scheduler.
+- Rely solely on the OS temp directory's own eventual housekeeping — too indefinite;
+  does not satisfy "bounded lifetime."
+
+**Decision:** Lazy sweep on every `store_document()`/`get_document()` call, TTL = 30
+minutes, plus an `atexit` hook that clears all retained documents on normal process
+exit. Document IDs are generated with `uuid.uuid4().hex` and used only as an in-memory
+dict key — never concatenated into a filesystem path — so an unrecognized or malicious
+document ID cannot reach the filesystem at all; the actual temp-file path is generated
+independently via `tempfile.mkdtemp()` and never derived from client input.
+
+**Why:** Satisfies "bounded lifetime or explicit cleanup mechanism" without a background
+thread — the smallest mechanism that actually bounds retention. A single-stakeholder
+prototype does not need cleanup to happen the instant a document expires; it only needs
+to happen before storage grows unbounded, which a per-request sweep achieves.
+
+**Consequences:** A document can sit on disk past its 30-minute TTL if no further
+storage-layer request of any kind arrives to trigger a sweep — accepted, since
+inactivity also means no one is viewing that document. More significantly: **the
+`atexit` hook does not run on a forceful process kill.** This was confirmed directly
+during this session's manual testing — stopping the dev server with `Stop-Process
+-Force` left a 9.23 MB orphaned temp directory that had to be removed by hand. A
+graceful shutdown (Ctrl+C/SIGINT, which `uvicorn` handles normally) does trigger it.
+This is a known gap that would need an OS-level temp-directory reaper or a real
+background sweep for a production deployment; acceptable for local development, where
+restarts are typically graceful, but worth revisiting before Phase 9.
+
+---
+
 ## Open questions (not yet decided)
 
 - Deployment platform for the FastAPI backend (Render, Railway, Fly.io, or other) — 
-  deferred to Phase 9; will be recorded as DEC-008 once evaluated against actual
+  deferred to Phase 9; will be recorded as DEC-009 once evaluated against actual
   deployment constraints (page-image rendering is CPU/memory-bound, so free-tier limits
-  matter).
+  matter). Phase 9 must also revisit `DEC-008`'s force-kill cleanup gap before real
+  deployment.
 - Whether a small synthetic PDF fixture should be committed to `corpus-poc` for
   CI-only testing (see `[[dec-007-test-fixture-source]]`).
