@@ -22,7 +22,7 @@ been written yet as of this document's creation (Phase 0/1, 2026-08-18).
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
 | FUNC-01 | `POST /extract` (or equivalent) accepts a PDF upload and returns structured JSON (document, pages, regions). | Must | API contract for the vertical slice. | PLANNED |
-| FUNC-02 | `GET /health` returns backend liveness status. | Must | Deployment/ops baseline, explicitly required. | PLANNED |
+| FUNC-02 | `GET /health` returns backend liveness status. | Must | Deployment/ops baseline, explicitly required. | VALIDATED |
 | FUNC-03 | Backend renders and serves a page image for a given document + page number. | Must | Required for visual inspection (PROD-02). | PLANNED |
 | FUNC-04 | Extraction output includes page-level data: page number, dimensions, word count, char count. | Must | Required data model field (Page). | PLANNED |
 | FUNC-05 | Extraction output includes word-level regions: text, bounding box, page number, order index. | Must | Required data model field (Region); evidence basis in `[[dec-003-extraction-engine]] `/`[[dec-005-region-granularity]]`. | PLANNED |
@@ -44,8 +44,8 @@ been written yet as of this document's creation (Phase 0/1, 2026-08-18).
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
 | TECH-01 | Frontend: Next.js + TypeScript. | Must | `[[dec-001-frontend-framework]]`. | ACCEPTED (decision), PLANNED (build) |
-| TECH-02 | Backend: Python + FastAPI. | Must | `[[dec-002-backend-framework]]`. | ACCEPTED (decision), PLANNED (build) |
-| TECH-03 | Communication over HTTP/JSON only. | Must | Brief requirement; keeps frontend/backend independently replaceable. | PLANNED |
+| TECH-02 | Backend: Python + FastAPI. | Must | `[[dec-002-backend-framework]]`. | ACCEPTED (decision), IN PROGRESS (build) — minimal app + `/health` implemented and validated; extraction endpoints not yet built |
+| TECH-03 | Communication over HTTP/JSON only. | Must | Brief requirement; keeps frontend/backend independently replaceable. | VALIDATED (for `/health`; not yet exercised by extraction endpoints) |
 | TECH-04 | No persistent database in v1. | Must (constraint) | `[[dec-004-no-database]]`. | ACCEPTED (decision) |
 | TECH-05 | API response schema must not be UI-specific — structured JSON that could serve a different frontend. | Must | Explicit brief requirement (API design). | PLANNED |
 
