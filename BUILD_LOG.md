@@ -892,3 +892,75 @@ obtained); (2) whether to pursue the Python-version question further through som
 channel other than this project's available Render log view (e.g. Render support
 directly) is an open decision, not a task in progress — no next step has been
 committed to on that front.
+
+---
+
+## 2026-08-19 — Frontend deployed to Vercel; smoke test blocked by CORS misconfiguration
+
+**Task:** Smoke-test the newly deployed frontend (`https://corpus-poc.vercel.app`)
+against the live backend, using a small PDF only (RIL explicitly excluded per
+instruction, to avoid mixing this checkpoint with the separate 502 investigation). No
+backend changes permitted for this task — verification and reporting only.
+
+**What was found:**
+- Public frontend loads correctly at `https://corpus-poc.vercel.app` — same clean
+  upload screen as local/Phase 5, no errors on initial load.
+- Uploading a small (1-page, 2-word) test PDF and clicking "Upload & Extract" fails
+  every time with the frontend's own generic error message: `"Network error while
+  uploading. Is the backend running?"` — the message `lib/api.ts` shows specifically
+  when the browser's XHR never receives an HTTP response at all (as opposed to
+  receiving an error status code with a body), which is the signature of a blocked
+  cross-origin request, not a timeout or an application-level rejection.
+- Confirmed the root cause directly, independent of the browser: 
+  ```
+  curl -i -X OPTIONS https://corpus-poc.onrender.com/extract \
+    -H "Origin: https://corpus-poc.vercel.app" \
+    -H "Access-Control-Request-Method: POST" \
+    -H "Access-Control-Request-Headers: content-type"
+  ```
+  → `400 Bad Request`, body `Disallowed CORS origin`. The deployed backend's
+  `CORPUS_ALLOWED_ORIGINS` environment variable does not include
+  `https://corpus-poc.vercel.app` — exactly the configuration step
+  `DEPLOYMENT.md` §6/§9 already flagged as required once the Vercel URL was known,
+  and it was not carried out (or was set to something that doesn't match the actual
+  assigned Vercel URL).
+- One transient, unrelated observation during testing: the very first upload attempt
+  hit a `503` (cold start — the Render free-tier instance had been idle). A direct
+  `curl .../health` immediately after returned `200`, confirming the instance was
+  simply waking up, consistent with `DEPLOYMENT.md` §12's documented cold-start risk.
+  This was not the cause of the sustained failure — every subsequent attempt, with the
+  backend confirmed warm, failed identically with the CORS block above.
+
+**Smoke-test results against the instructed checklist:**
+1. Public frontend loads — **PASS**
+2. Frontend communicating with the Render backend — **FAIL** (blocked by CORS; see
+   above)
+3–10. PDF upload / extraction / document summary / page navigation / page image /
+   bounding boxes / word click / provenance panel — **NOT REACHABLE**, all depend on
+   step 2 succeeding first. Not tested; not claimed as working or broken beyond "blocked."
+11. New Document/reset — **NOT REACHABLE**: this control only renders after a
+   successful extraction, which never occurred.
+12. Invalid-PDF error handling — **FAIL** (same cause): a non-PDF upload was attempted
+   and produced the identical generic `"Network error while uploading"` message
+   instead of the backend's specific `"Only .pdf files are accepted."` response,
+   because the CORS preflight blocks the request before it ever reaches the backend's
+   validation logic, regardless of file content.
+
+**No backend, frontend application, or extraction code was changed.** This is a
+deployment-configuration gap on the Render side (an environment variable value), not
+a code defect — consistent with `DEPLOYMENT.md`'s own prior warning that a
+frontend/backend origin mismatch is "not a code bug, it is a configuration bug."
+
+**Files modified:** `DEPLOYMENT.md` (§14 summary table and a new §16 recording this
+checkpoint's findings; real URLs filled in for the first time).
+
+**Deployment status:** Frontend LIVE at `https://corpus-poc.vercel.app`. Backend LIVE
+at `https://corpus-poc.onrender.com` (commit `2747d20`, per the prior entry). The two
+are **not** currently able to communicate due to the CORS gap above — the first public
+Corpus iteration is **not yet usable end-to-end** by an external tester.
+
+**Next immediate task:** Set `CORPUS_ALLOWED_ORIGINS=https://corpus-poc.vercel.app` in
+the Render dashboard's Environment settings for the backend service, then redeploy/
+restart it so the change takes effect, then re-run this exact smoke test. This is a
+dashboard-only change (no code, no commit needed) — flagged here rather than performed,
+since backend changes were explicitly out of scope for this task.
