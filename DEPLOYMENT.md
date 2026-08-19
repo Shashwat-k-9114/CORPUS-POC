@@ -104,18 +104,27 @@ cd frontend && npm install && npm run dev
    - Build command: `pip install -r requirements.txt`
    - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
    - Health check path: `/health`
-   - Runtime: Python. `backend/runtime.txt` (`python-3.12.7`) was intended to pin this
-     but **is not actually honored by Render** — confirmed post-deployment: Render's
+   - Runtime: Python, intended version `3.12.7`. Originally attempted via
+     `backend/runtime.txt`, which **was confirmed not to be honored by Render** — its
      Python-version resolution only recognizes a `PYTHON_VERSION` env var or a
-     `.python-version` file, not the Heroku-style `runtime.txt` this repo currently
-     has. The live deployment is running Render's own default, **Python 3.14.3**
-     (matches Render's documented default for services created on/after
-     2026-02-11), not 3.12.7. See `BUILD_LOG.md` (2026-08-19, "Python runtime
-     verification") for the full evidence trail. Practical impact assessed as low —
-     this project's dependency pins were originally chosen to work on Python 3.14
-     locally (Phase 2), so 3.14.3 is not an unvalidated combination — but
-     `runtime.txt` should not be trusted as documentation of what's actually
-     deployed until this is fixed.
+     `.python-version` file, not the Heroku-style `runtime.txt` filename. The
+     deployment that used `runtime.txt` actually ran Render's own default, **Python
+     3.14.3** (matching Render's documented default for services created on/after
+     2026-02-11), not 3.12.7. Full evidence trail: `BUILD_LOG.md`, 2026-08-19 "Python
+     runtime verification."
+     
+     **Fix applied:** `backend/runtime.txt` removed; replaced with a `.python-version`
+     file (content: `3.12.7`) placed in **two locations** — `.python-version` at the
+     true repository root, and `backend/.python-version` inside the service's
+     `rootDir`. This dual placement is a **deliberate, unresolved-ambiguity hedge**,
+     not a claim that Render requires or documents both: Render's own docs say
+     `.python-version` belongs "in the root of your repo," but a *separate* Render doc
+     on monorepo services states files outside a service's configured `rootDir` are
+     not available to it at build time — those two statements do not clearly resolve
+     which "root" applies when `rootDir: backend` is set, and no further Render
+     documentation or support source was found that settles it. Placing the identical
+     file in both locations avoids betting on either reading. **This has not yet been
+     verified against a real redeploy** — see §14.
 3. Set `CORPUS_ALLOWED_ORIGINS` in the Render dashboard once the Vercel URL is known
    (chicken-and-egg with step in §7 — deploy the backend first with a placeholder or
    with the frontend's *expected* Vercel URL, then correct it if the actual assigned
@@ -252,7 +261,8 @@ rather than discovered by surprise:
 | Backend runs locally, all endpoints work | LOCALLY VALIDATED (Phases 2–5) |
 | Frontend runs locally, full workflow works | LOCALLY VALIDATED (Phase 5) |
 | `backend/render.yaml` schema correctness | PREPARED — EXTERNALLY UNVALIDATED |
-| `backend/runtime.txt` pins the deployed Python version | **CONFIRMED FALSE** — Render doesn't recognize `runtime.txt` at all (only `PYTHON_VERSION` env var or `.python-version`); the deployment actually runs Render's default, Python 3.14.3, not the intended 3.12.7. Assessed as low-impact (see §6) but the file is misleading as-is. See `BUILD_LOG.md` 2026-08-19. |
+| `runtime.txt` pins the deployed Python version | **CONFIRMED FALSE** (historical) — Render doesn't recognize `runtime.txt`; the deployment that used it ran Render's default, Python 3.14.3, not 3.12.7. File removed. See `BUILD_LOG.md` 2026-08-19 "Python runtime verification." |
+| Dual `.python-version` (root + `backend/`) fixes the deployed Python version to 3.12.7 | PREPARED — **EXTERNALLY UNVALIDATED**, not yet redeployed. Placement is a deliberate hedge for an unresolved `rootDir` ambiguity (see §6), not a confirmed-correct location. |
 | Render request timeout accommodates a 147-page RIL extraction | UNKNOWN — EXTERNALLY UNVALIDATED |
 | Render free-tier temp disk/in-memory behavior across a real request lifecycle | UNKNOWN — EXTERNALLY UNVALIDATED |
 | Vercel deploys this Next.js app without further configuration | PREPARED — EXTERNALLY UNVALIDATED |

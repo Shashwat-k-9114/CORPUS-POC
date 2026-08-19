@@ -769,3 +769,59 @@ file and/or a `PYTHON_VERSION` env var, with its placement relative to
 continue the separate RIL `/extract` 502 investigation, which still needs the actual
 Render runtime/request logs for the relevant timestamp window to proceed past the
 current inference-only diagnosis.
+
+---
+
+## 2026-08-19 — Python runtime fix: dual `.python-version` (config only, not redeployed)
+
+**Task:** Apply the approved fix for the Python-runtime finding above. User explicitly
+approved a "dual-location" resolution to an ambiguity that further research could not
+settle (see immediately below) rather than guessing a single location. Config-only —
+no code, dependency, or Render-setting change; not deployed.
+
+**The unresolved ambiguity, investigated before making any change:** Render's
+Python-version doc states `.python-version` belongs "in the root of your repo."
+Render's separate monorepo-support doc states "files outside your service's root
+directory are not available to the service at build time or at runtime" once
+`rootDir` is set (ours is `rootDir: backend`). These two statements don't clearly
+resolve which "root" governs *version discovery specifically* — version detection
+could plausibly happen at the true git-clone root before `rootDir` scoping applies to
+the rest of the build, or it could already be scoped by `rootDir` like everything
+else the second doc describes. A further search for community/support discussion of
+this exact combination found nothing that settles it either. This was reported to the
+user as a genuine ambiguity rather than guessed past, per instruction; the user then
+explicitly approved covering both readings rather than resolving the ambiguity by
+further guessing.
+
+**What was changed:**
+- Created `.python-version` (repo root) — content: `3.12.7`
+- Created `backend/.python-version` — content: `3.12.7`
+- Removed `backend/runtime.txt` (confirmed non-functional — see the prior entry)
+- `backend/render.yaml` — **not modified**: it contains no reference to `runtime.txt`,
+  so there was nothing outdated in it to correct.
+- `DEPLOYMENT.md` — §6 (Render setup steps) and §14 (verification summary table)
+  updated to describe the fix, explicitly labeled `PREPARED`/`EXTERNALLY
+  UNVALIDATED` since it has not been tested against a real redeploy, and explicitly
+  stating the dual placement is a hedge for an unresolved ambiguity, not a claim that
+  Render requires or documents both locations.
+- `DECISIONS.md` — not modified. This is a configuration correction with one
+  reasonable, low-cost, easily-reversible resolution (duplicate a one-line file),
+  not a decision with meaningfully competing architectural alternatives — doesn't
+  meet the bar `DECISIONS.md` sets for its own entries.
+- `README.md` / `backend/README.md` — checked, contain no Python-version deployment
+  claims to correct (they don't mention `runtime.txt`, `.python-version`, or a
+  specific Python version at all).
+
+**Tests performed:** `pytest` — see result reported at the end of this session's
+conversation. No frontend changes, no frontend tests run. The RIL upload was **not**
+retried; the 502 investigation was **not** touched by this work.
+
+**Deployment status:** UNCHANGED — still NOT redeployed since Phase 6. This fix exists
+only in the local commit; it has not been pushed or verified against a real Render
+build. Whether Render actually finds either (or neither, or both) `.python-version`
+file remains genuinely unverified until a controlled redeploy happens.
+
+**Next immediate task:** A controlled Render redeploy to observe the actual build log
+and confirm which (if either) `.python-version` location Render used — this would
+also retroactively resolve the ambiguity documented above for future reference. Still
+separately open and untouched: the RIL `/extract` 502 investigation.
