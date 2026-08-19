@@ -22,6 +22,9 @@ state of what has actually been built and verified.
 - [`DECISIONS.md`](./DECISIONS.md) — architecture/product decision record
 - [`BUILD_LOG.md`](./BUILD_LOG.md) — session-by-session build history (source of truth
   for "what works right now")
+- [`DEPLOYMENT.md`](./DEPLOYMENT.md) — deployment architecture, setup steps, and
+  environment variables (Vercel + Render). **Deployment-readiness is prepared but no
+  external deployment has occurred yet** — see that document's status tags.
 
 ## Planned architecture
 
@@ -78,5 +81,10 @@ that appear for any document with enough pages.
 
 ## Deployment
 
-Not yet available. Deployment approach and constraints will be documented here once
-Phase 9 completes (see `DECISIONS.md` open questions and `BUILD_LOG.md`).
+Not yet deployed anywhere — no external hosting account or Git remote has been set up
+for this project. Deployment-readiness (Render config for the backend, Vercel-ready
+frontend, environment variable wiring, CORS configuration) is **prepared**; see
+[`DEPLOYMENT.md`](./DEPLOYMENT.md) for the full architecture, setup steps, and an
+explicit breakdown of what is locally validated vs. externally unvalidated. See
+`DECISIONS.md` `DEC-009` for why Render (not a serverless/Function platform) was
+chosen for the backend, and `BUILD_LOG.md` for the session this was prepared in.

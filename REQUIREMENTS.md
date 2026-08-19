@@ -71,10 +71,10 @@ status change.
 
 | ID | Requirement | Priority | Rationale | Status |
 |---|---|---|---|---|
-| DEPLOY-01 | Frontend deployable to Vercel (or documented alternative if a strong reason emerges). | Must | Brief's preferred direction; no reason yet to deviate. | PLANNED |
-| DEPLOY-02 | Backend deployable to a simple Python hosting platform. | Must | Brief requirement; specific platform is an open question (`[[dec-007-test-fixture-source]]` area, see DECISIONS.md open questions). | PLANNED |
-| DEPLOY-03 | No secrets committed to the repository; `.env.example` documents required environment variables. | Must | Explicit brief + general security requirement. | IMPLEMENTED — `backend/.env.example` (`CORPUS_ALLOWED_ORIGINS`) and `frontend/.env.example` (`NEXT_PUBLIC_API_BASE_URL`) both added Phase 5; no secrets exist in the app yet to leak |
-| DEPLOY-04 | Deployed frontend and backend can communicate with each other over the public internet. | Must | Explicit acceptance criterion. | PLANNED |
+| DEPLOY-01 | Frontend deployable to Vercel (or documented alternative if a strong reason emerges). | Must | Brief's preferred direction; no reason yet to deviate. | READY — `[[dec-009-prototype-deployment]]`; Vercel project setup steps documented in `DEPLOYMENT.md`, not yet executed (no account access) |
+| DEPLOY-02 | Backend deployable to a simple Python hosting platform. | Must | Brief requirement; platform now chosen. | READY — `[[dec-009-prototype-deployment]]` (Render, Web Service); `backend/render.yaml` prepared but schema is externally unvalidated (no live Render docs/account access this session) — see `DEPLOYMENT.md` |
+| DEPLOY-03 | No secrets committed to the repository; `.env.example` documents required environment variables. | Must | Explicit brief + general security requirement. | IMPLEMENTED — dev examples (`backend/.env.example`, `frontend/.env.example`, Phase 5) plus production placeholder examples (`backend/.env.production.example`, `frontend/.env.production.example`, Phase 6, both containing only `REPLACE-WITH-...` placeholders, no real values); no secrets exist in the app to leak |
+| DEPLOY-04 | Deployed frontend and backend can communicate with each other over the public internet. | Must | Explicit acceptance criterion. | PLANNED — cannot be validated until an actual deployment exists; CORS/env-var wiring for this is prepared and documented in `DEPLOYMENT.md` §8–9 |
 
 ## Non-functional requirements
 

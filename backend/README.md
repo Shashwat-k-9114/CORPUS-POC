@@ -2,7 +2,9 @@
 
 FastAPI application. See root `../PROJECT.md`, `../DECISIONS.md`, `../REQUIREMENTS.md`
 for product/architecture context, and `../BUILD_LOG.md` for current implementation
-status.
+status. For deploying this backend (Render), see `../DEPLOYMENT.md` and
+`render.yaml`/`.env.production.example` in this directory — prepared but not yet
+externally validated (no deployment has occurred).
 
 ## Setup
 

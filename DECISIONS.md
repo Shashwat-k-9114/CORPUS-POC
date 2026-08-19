@@ -275,12 +275,81 @@ restarts are typically graceful, but worth revisiting before Phase 9.
 
 ---
 
+## DEC-009 — Prototype deployment: Render (backend web service) + Vercel (frontend)
+
+**Date:** 2026-08-18
+**Status:** ACCEPTED (deployment-readiness preparation only — no external deployment
+has occurred as of this decision; see `DEPLOYMENT.md`)
+
+**Context:** The Phase 5 application (FastAPI backend + Next.js frontend) works fully
+end-to-end locally and needs to be reachable at a public URL so a stakeholder can test
+it without local setup (`PROD-04`). The backend's actual runtime behavior constrains
+which hosting model is viable: it performs synchronous, CPU-bound PDF word extraction
+that measured ~76–90 seconds for the 147-page RIL report (Phases 3–5); it keeps an
+in-memory document registry with a 30-minute TTL (`DEC-008`); and it writes each
+uploaded PDF to local temp disk, which must still be present when a later
+`GET /documents/{id}/pages/{n}/image` request arrives, possibly minutes afterward.
+
+**Options considered:**
+- **Vercel Functions (serverless) for the backend too**, matching the frontend's
+  platform for simplicity — rejected. Serverless/Function products are built around
+  short-lived, independently-invoked, typically stateless execution environments;
+  common free/low-tier request-duration limits (seconds to tens of seconds) are not
+  reliably long enough for the measured ~76–90s extraction time, and there is no
+  guarantee that two requests (the initial `/extract` and a later `/pages/.../image`
+  request) land on the same warm instance with the same local disk and the same
+  in-memory Python process. Making this work would require redesigning the backend
+  around async job processing and/or external state (a queue, a database, object
+  storage) — explicitly out of scope for this phase and not something the current
+  prototype needs to prove.
+- **A conventional persistent web-service host for the backend** (Render, Railway,
+  Fly.io, and similar all fit this description) — a single long-running container
+  process, matching exactly how the backend already runs locally (`uvicorn` serving
+  requests continuously, one process, one temp directory tree, one in-memory dict for
+  the lifetime of the process).
+- **Among persistent-process hosts, Render specifically** — chosen over Railway/Fly.io
+  primarily because it has a straightforward, well-documented free tier for exactly
+  this workload shape (a single Python web service) and a Blueprint (`render.yaml`)
+  mechanism for reproducible, git-tracked configuration. This is not a claim that
+  Railway or Fly.io would be unsuitable — either would likely work under the same
+  reasoning above — Render was picked as *a* reasonable default, not because the
+  others were evaluated and rejected on technical merit.
+
+**Decision:** Frontend on Vercel (matches `DEC-001`'s existing framework choice
+directly — Vercel is Next.js's own platform). Backend on Render, deployed as a **Web
+Service** (persistent process), not a Function/serverless product, configured via
+`backend/render.yaml`.
+
+**Why:** The backend's actual behavior — long synchronous requests, an in-memory
+registry, and temp-file state that must outlive a single request — needs a host that
+keeps one process running continuously with a stable local filesystem, which is
+precisely what a conventional web-service deployment provides and a serverless
+Function deployment does not reliably provide. This lets the prototype deploy with
+**zero changes to the application's architecture** (no new database, no queue, no
+async job system) — the deployment target was chosen to fit the existing prototype,
+not the other way around.
+
+**This is a prototype deployment decision, not a final Corpus production-architecture
+decision.** If Corpus's real usage later needs multi-instance scaling, durable
+document storage across restarts, or genuinely long-running background processing,
+that will warrant its own, separately-evaluated architecture decision — likely
+superseding both this entry and `DEC-004`/`DEC-008`.
+
+**Consequences:** Free-tier persistent-process hosts commonly idle-spin-down and cold-
+start, which is a real, expected limitation on this plan (documented in
+`DEPLOYMENT.md` §12) — this is a tier/cost tradeoff, not a defect introduced by this
+decision. `backend/render.yaml`'s exact field names are written from documented
+Blueprint schema knowledge and are **not** verified against Render's current live
+docs or an actual Render account (no external lookup or account access was available
+during this preparation work) — flagged explicitly in `DEPLOYMENT.md` rather than
+presented as confirmed.
+
+---
+
 ## Open questions (not yet decided)
 
-- Deployment platform for the FastAPI backend (Render, Railway, Fly.io, or other) — 
-  deferred to Phase 9; will be recorded as DEC-009 once evaluated against actual
-  deployment constraints (page-image rendering is CPU/memory-bound, so free-tier limits
-  matter). Phase 9 must also revisit `DEC-008`'s force-kill cleanup gap before real
-  deployment.
 - Whether a small synthetic PDF fixture should be committed to `corpus-poc` for
   CI-only testing (see `[[dec-007-test-fixture-source]]`).
+- Whether Render's actual free-tier request timeout and CPU allocation can complete a
+  147-page RIL-scale extraction — genuinely unknown until a real deployment is tested
+  (see `DEPLOYMENT.md` §12, §14).

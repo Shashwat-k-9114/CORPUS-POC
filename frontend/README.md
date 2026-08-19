@@ -2,7 +2,9 @@
 
 Next.js + TypeScript app. See root `../PROJECT.md`, `../DECISIONS.md`,
 `../REQUIREMENTS.md` for product/architecture context, and `../BUILD_LOG.md` for
-current implementation status.
+current implementation status. For deploying this frontend (Vercel), see
+`../DEPLOYMENT.md` and `.env.production.example` in this directory — prepared but not
+yet externally validated (no deployment has occurred).
 
 ## Setup
 

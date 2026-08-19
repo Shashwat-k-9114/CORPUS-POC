@@ -611,3 +611,98 @@ to record, not a new architectural decision.
 **Next immediate task:** Not started. Deployment (Phase 9 in the original phase
 numbering) is the explicitly named next small task, now that the local app is fully
 working end-to-end.
+
+---
+
+## 2026-08-19 — Phase 6: deployment-readiness preparation (no deployment performed)
+
+**Task:** Prepare the existing Phase 5 prototype so it can be deployed (Vercel +
+Render) as soon as external account/repository access is available. No GitHub remote
+or deployment CLI/account access existed in this environment — confirmed directly
+(`git remote -v` empty; `gh`/`vercel`/`render`/`flyctl`/`railway` all "command not
+found"). This session did **not** deploy, push, log into, or authenticate against any
+external service.
+
+**What was built:**
+- `backend/render.yaml` — Render Blueprint for the backend as a persistent **Web
+  Service** (not serverless): `rootDir: backend`, `buildCommand: pip install -r
+  requirements.txt`, `startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT`,
+  `healthCheckPath: /health`, `CORPUS_ALLOWED_ORIGINS` declared with `sync: false` (must
+  be set manually in the Render dashboard once a real Vercel URL exists — never
+  guessed or hardcoded). Schema written from documented Render Blueprint knowledge;
+  **not** verified against a live Render account or current docs (no external lookup
+  was performed) — explicitly flagged as such in the file's own header comment and in
+  `DEPLOYMENT.md`.
+- `backend/runtime.txt` (`python-3.12.7`) — pins a Python version these exact
+  dependency pins are known to support; chosen because Render needs *some* version
+  signal and none existed yet (not redundant with `render.yaml`, which declares no
+  `PYTHON_VERSION`).
+- `backend/.env.production.example`, `frontend/.env.production.example` — placeholder
+  values only (`REPLACE-WITH-DEPLOYED-...`), no real URLs, no secrets.
+- `DEPLOYMENT.md` — full deployment guide: architecture diagram, why the backend is
+  not serverless, required accounts, required env vars, local dev recap, Render setup
+  steps, Vercel setup steps, how to connect the two, CORS configuration, health check,
+  a smoke-test procedure to run once real URLs exist, known tier limitations (request
+  timeout, cold start, ephemeral disk/registry, upload size, CPU/memory), and
+  rollback/troubleshooting notes. Every claim is tagged `PREPARED`, `LOCALLY
+  VALIDATED`, or `EXTERNALLY UNVALIDATED` — a summary table closes the document.
+- `DECISIONS.md` — added `DEC-009` (Render for the backend as a persistent web
+  service, Vercel for the frontend; full reasoning against a serverless/Function
+  backend given the measured ~76–90s RIL extraction time and the in-memory-registry +
+  temp-disk state from `DEC-008`). Explicitly marked as a prototype deployment
+  decision, not a final production architecture decision. Resolved the stale
+  "will be recorded as DEC-009" placeholder in the old open-questions note.
+- `REQUIREMENTS.md` — `DEPLOY-01`/`DEPLOY-02` moved from `PLANNED` to `READY` (platform
+  chosen, configuration prepared, nothing externally validated yet — deliberately not
+  `VALIDATED`, since no deployment exists); `DEPLOY-03` updated to note the new
+  production `.env` examples; `DEPLOY-04` left `PLANNED` (cannot be validated without a
+  real deployment).
+- `README.md`, `backend/README.md`, `frontend/README.md` — pointers to
+  `DEPLOYMENT.md` and the new `.env.production.example` files, each explicit that
+  preparation is done but nothing is deployed.
+
+**Files added:**
+- `backend/render.yaml`
+- `backend/runtime.txt`
+- `backend/.env.production.example`
+- `frontend/.env.production.example`
+- `DEPLOYMENT.md`
+
+**Files modified:**
+- `DECISIONS.md`, `REQUIREMENTS.md`, `README.md`, `backend/README.md`,
+  `frontend/README.md`
+
+**Bug found and fixed during this session's own validation pass:**
+`frontend/.gitignore` (a `create-next-app` default from Phase 5, not something written
+by hand) contains a blanket `.env*` rule. That silently excluded `frontend/.env.example`
+from every commit since Phase 5 — despite Phase 5's own report claiming it was
+committed — and would have done the same to this phase's new
+`frontend/.env.production.example`. Neither file contains a secret (placeholder/
+localhost values only), but `DEPLOY-03` requires them to actually be tracked as
+documentation. Fixed by adding `!.env.example` and `!.env.production.example`
+negation lines to `frontend/.gitignore`; both files are tracked as of this commit.
+Caught by this phase's own "verify no secrets/real URLs are committed" check
+surfacing the opposite problem — a file that should have been committed wasn't.
+
+**Behaviour added/changed:** None — no application code was touched. Extraction
+methodology, CORS logic, storage/TTL behavior, and all endpoints are unchanged from
+Phase 5.
+
+**Tests performed:** See the validation results reported at the end of this session's
+conversation (backend `pytest`, frontend `vitest`/`build`, and a structural review of
+`render.yaml` and the production env-var wiring) — recorded there rather than
+duplicated here to avoid drift between two copies of the same numbers; this entry is
+the narrative record, the end-of-session report is the exact figures.
+
+**Deployment status:** NOT IMPLEMENTED. Nothing has been deployed. `render.yaml` and
+the Vercel setup steps are prepared but externally unvalidated.
+
+**Known issues / limitations:** See `DEPLOYMENT.md` §12 and §14 for the full,
+explicit list of what remains unverified (Render Blueprint schema correctness, Python
+runtime availability, request-timeout headroom for a 147-page extraction, cold-start
+behavior, CORS across two real origins) — not duplicated here.
+
+**Next immediate task:** Obtain a Git remote and Render/Vercel account access (an
+external action for the project owner, not something achievable from this
+environment), then execute the steps in `DEPLOYMENT.md` §6–§7 and run the smoke test
+in §11 against real URLs.
