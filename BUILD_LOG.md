@@ -706,3 +706,66 @@ behavior, CORS across two real origins) — not duplicated here.
 external action for the project owner, not something achievable from this
 environment), then execute the steps in `DEPLOYMENT.md` §6–§7 and run the smoke test
 in §11 against real URLs.
+
+---
+
+## 2026-08-19 — Python runtime verification (post-deployment finding, no code changed)
+
+**Task:** After the Phase 6-prepared backend was actually deployed to Render
+(`https://corpus-poc.onrender.com`, commit `d180d6645fecbd8842f2b440caf449a7dd8c5909`)
+and a smoke test was run, confirm whether `backend/runtime.txt` (intended to pin
+Python 3.12.7) was actually honored by the live deployment. This session made **no
+code, configuration, or deployment changes** — verification only.
+
+**Observed fact:** The Render build log for this deployment reads:
+`==> Using Python version 3.14.3 (default)`, immediately followed by a link to
+Render's own docs on specifying a Python version
+(`https://render.com/docs/python-version`).
+
+**Evidence:** Fetching that exact doc page shows Render resolves the Python version
+via, in order: (1) a `PYTHON_VERSION` environment variable, (2) a `.python-version`
+file at the repo root, (3) a default based on the service's creation date — and
+explicitly states services created on/after 2026-02-11 default to **3.14.3**. Render's
+docs do not mention `runtime.txt` (the Heroku-style filename this repo uses) as a
+recognized mechanism at all. The deployed version (3.14.3) exactly matches Render's
+documented default, not a value that could plausibly have come from a 3.12.7 pin.
+
+**Interpretation:** `runtime.txt` was **not honored** by Render — confirmed with high
+confidence (converging evidence: wrong filename/format for Render's documented
+mechanism, the deployed version matching Render's documented default exactly, and the
+build log's own "(default)" label), though not something provable from outside
+Render's own resolver logic. The service ran Python 3.14.3 for this deployment, not
+3.12.7.
+
+**Impact assessed as low, but documentation/configuration accuracy is genuinely
+affected:** This project's dependency pins (`fastapi==0.141.1`, `pydantic==2.13.4`,
+etc., see Phase 2) were originally chosen specifically because they had to work on
+Python 3.14 locally — so 3.14.3 on Render is not an unvalidated combination; if
+anything it's closer to what was actually tested locally than 3.12.7 would have been.
+The build completed cleanly with no dependency-resolution errors. The genuine problem
+is that `backend/runtime.txt`, `DEPLOYMENT.md`, and this file's own Phase 6 entry
+asserted 3.12.7 was what would be deployed, and that assertion was false — corrected
+in `DEPLOYMENT.md` as of this entry.
+
+**Explicitly kept separate — not part of this finding:** The RIL `/extract` 502
+after ~55s (observed during the same smoke test) remains a **separate, unresolved
+investigation**. Nothing about the Python-version finding above explains or resolves
+it — a build-time version-resolution gap does not produce a mid-request timeout.
+That investigation is still open and tracked independently.
+
+**Files modified:** `DEPLOYMENT.md` (§6 Render setup steps, §14 verification summary
+table) — corrected to state the actual deployed Python version and why the intended
+pin didn't take effect. `backend/runtime.txt` **unchanged** (still asserts 3.12.7 —
+left as-is pending an explicit decision on the actual fix, per instruction not to
+modify it this session).
+
+**Tests performed:** None — documentation-only change, no application code touched,
+no re-validation required. The RIL upload was not retried.
+
+**Next immediate task:** Two independent, still-open items, neither resolved by this
+entry: (1) decide and apply the actual Python-version fix (likely a `.python-version`
+file and/or a `PYTHON_VERSION` env var, with its placement relative to
+`rootDir: backend` confirmed before relying on it) — not yet approved or made; (2)
+continue the separate RIL `/extract` 502 investigation, which still needs the actual
+Render runtime/request logs for the relevant timestamp window to proceed past the
+current inference-only diagnosis.
