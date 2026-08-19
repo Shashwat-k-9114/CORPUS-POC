@@ -123,8 +123,10 @@ cd frontend && npm install && npm run dev
      not available to it at build time — those two statements do not clearly resolve
      which "root" applies when `rootDir: backend` is set, and no further Render
      documentation or support source was found that settles it. Placing the identical
-     file in both locations avoids betting on either reading. **This has not yet been
-     verified against a real redeploy** — see §14.
+     file in both locations avoids betting on either reading. **Redeployed and
+     confirmed live (commit `2747d20`), but which Python version was actually
+     selected remains unverifiable** — Render's available log view for this service
+     does not expose the build-resolution line needed to confirm it. See §15.
 3. Set `CORPUS_ALLOWED_ORIGINS` in the Render dashboard once the Vercel URL is known
    (chicken-and-egg with step in §7 — deploy the backend first with a placeholder or
    with the frontend's *expected* Vercel URL, then correct it if the actual assigned
@@ -262,9 +264,46 @@ rather than discovered by surprise:
 | Frontend runs locally, full workflow works | LOCALLY VALIDATED (Phase 5) |
 | `backend/render.yaml` schema correctness | PREPARED — EXTERNALLY UNVALIDATED |
 | `runtime.txt` pins the deployed Python version | **CONFIRMED FALSE** (historical) — Render doesn't recognize `runtime.txt`; the deployment that used it ran Render's default, Python 3.14.3, not 3.12.7. File removed. See `BUILD_LOG.md` 2026-08-19 "Python runtime verification." |
-| Dual `.python-version` (root + `backend/`) fixes the deployed Python version to 3.12.7 | PREPARED — **EXTERNALLY UNVALIDATED**, not yet redeployed. Placement is a deliberate hedge for an unresolved `rootDir` ambiguity (see §6), not a confirmed-correct location. |
-| Render request timeout accommodates a 147-page RIL extraction | UNKNOWN — EXTERNALLY UNVALIDATED |
-| Render free-tier temp disk/in-memory behavior across a real request lifecycle | UNKNOWN — EXTERNALLY UNVALIDATED |
+| Dual `.python-version` (root + `backend/`) fixes the deployed Python version to 3.12.7 | **PERMANENTLY UNVERIFIABLE via the available evidence** — commit `2747d20` (containing both files) is deployed and live, but Render's runtime/deploy log view for this service does not expose the build-time "Using Python version..." line, so which Python version was actually selected — and which `.python-version` location (if either) was honored — **cannot be confirmed**. Do not assume `3.12.7` is running. See §15. |
+| Render request timeout accommodates a 147-page RIL extraction | UNKNOWN — EXTERNALLY UNVALIDATED (separate, still-open investigation; not touched by this checkpoint) |
+| Render free-tier temp disk/in-memory behavior across a real request lifecycle | CONFIRMED WORKING for a small document (§15) — unconfirmed at RIL scale |
 | Vercel deploys this Next.js app without further configuration | PREPARED — EXTERNALLY UNVALIDATED |
-| CORS works correctly across two real deployed origins | UNKNOWN — EXTERNALLY UNVALIDATED |
-| Actual deployed URLs | DO NOT EXIST YET |
+| CORS works correctly across two real deployed origins | UNKNOWN — EXTERNALLY UNVALIDATED (no Vercel deployment exists yet) |
+| Actual deployed URLs | Backend: `https://corpus-poc.onrender.com` (live). Frontend: does not exist yet. |
+
+## 15. Deployment verification record — commit `2747d20` (2026-08-19)
+
+Final record of what this specific checkpoint actually confirmed. Superseded facts
+from earlier, pre-fix deploys (e.g. the original 3.14.3-default finding) remain in
+`BUILD_LOG.md`'s dated entries rather than being edited out.
+
+- **Commit deployed:** `2747d20` (`Fix Render Python version configuration` — removes
+  `backend/runtime.txt`, adds `.python-version` at repo root and in `backend/`). Pushed
+  to `origin/master`; Render auto-deployed from it.
+- **`GET /health`** → `200 OK`.
+- **`POST /extract`** with a small (1-page, 2-word) test PDF → `200 OK`, valid
+  `document_id`, correct page/region/bbox structure, `confidence: null` — matches
+  local/prior-deploy behavior exactly.
+- **`GET /documents/{document_id}/pages/1/image`** (using the `document_id` from the
+  above request) → `200 OK`, `Content-Type: image/png`.
+- **Deployment starts successfully with Uvicorn, `WEB_CONCURRENCY=1`:** confirmed for
+  this service's configuration via the build log from the *original* deploy (Render
+  sets `WEB_CONCURRENCY=1` "based on available CPUs in the instance," and the service
+  starts as `uvicorn app.main:app...`, both unchanged since — `render.yaml`'s start
+  command was not modified by this fix). Not independently re-observed in a fresh log
+  for this exact commit, since that log was not available to inspect for this
+  checkpoint. The three live endpoint checks above are strong indirect confirmation
+  the same startup succeeded again for this deploy (all three require the app running
+  correctly under uvicorn).
+- **Python version actually selected: EXTERNALLY UNVERIFIED — explicitly, not
+  `3.12.7`.** Render's available runtime/deploy log view for this service does not
+  expose the build-time "Using Python version..." resolution line, so there is no
+  evidence to confirm or deny that either `.python-version` file (root or `backend/`)
+  was honored, or that Render used a different default again. **Do not claim 3.12.7 is
+  running.** This is now treated as permanently unverifiable through the log access
+  available for this project, not merely "pending more investigation."
+- **`.python-version` placement ambiguity:** NOT resolved by this deployment — the one
+  piece of evidence that would have settled it (the build-resolution log line) was not
+  obtainable.
+- **RIL `/extract` ~55s 502:** deliberately not retried or touched by this checkpoint;
+  remains a separate, still-open, independent investigation.

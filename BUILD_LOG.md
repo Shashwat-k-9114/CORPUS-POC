@@ -825,3 +825,70 @@ file remains genuinely unverified until a controlled redeploy happens.
 and confirm which (if either) `.python-version` location Render used — this would
 also retroactively resolve the ambiguity documented above for future reference. Still
 separately open and untouched: the RIL `/extract` 502 investigation.
+
+---
+
+## 2026-08-19 — Deployment verification checkpoint: commit `2747d20` live, Python version unverifiable
+
+**Task:** Push the local Python-version fix, let Render redeploy from it, and verify
+the deployment. Config/verification only — no application code, dependency, or Render
+setting changed.
+
+**What happened:**
+- `git push origin master` — clean fast-forward, `d180d66..2747d20`. `origin/master`
+  now matches local `HEAD`.
+- Render auto-deployed from the new commit.
+- Attempted to obtain the new build log to check for the "Using Python version..."
+  resolution line (the one piece of evidence that would settle which, if either,
+  `.python-version` file Render honored). **Not available:** Render's runtime/deploy
+  log view for this service does not expose that build-resolution line at all — only
+  the runtime/deploy log, not the earlier build-phase output that contained it in the
+  original deploy. Did not keep searching for it or attempt another redeploy to try
+  to surface it, per instruction.
+- Re-verified the live deployment directly instead, using only a small (1-page,
+  2-word) test PDF — **not** the RIL document:
+  - `GET /health` → `200 OK`
+  - `POST /extract` (small PDF) → `200 OK`, new `document_id`
+    (`f4ab272f142847f993b73fbc1367cff3`), correct page/region/bbox structure,
+    `confidence: null` — matches local and prior-deploy behavior exactly
+  - `GET /documents/{document_id}/pages/1/image` → `200 OK`, `image/png`
+
+**Conclusion — stated exactly as instructed, no more and no less:**
+- Commit `2747d20` is deployed and live; the service is reachable and the core
+  request/response pipeline (health, extract, page-image) works correctly.
+- The deployment starts successfully under Uvicorn; `WEB_CONCURRENCY=1` is Render's
+  own setting for this service (seen in the original deploy's build log, and start
+  command unchanged since — not re-observed fresh for this exact commit, since a
+  fresh build-phase log was not obtainable this time; the three passing endpoint
+  checks above are strong indirect corroboration the same startup succeeded again).
+- **Which Python version Render actually selected for this deployment is
+  unverified and is being treated as permanently unverifiable through the log
+  access available for this project** — not "still pending," a real dead end for
+  this specific evidence path. **3.12.7 is explicitly not being claimed as
+  confirmed.** Neither `.python-version` location can be said to have been honored.
+- The `.python-version` placement ambiguity (root vs. `backend/`, documented in the
+  prior entry) remains unresolved — the evidence that would have settled it was not
+  obtainable.
+
+**Files modified:** `DEPLOYMENT.md` (§6 Render setup steps updated to reflect the
+completed-but-inconclusive redeploy; §14 summary table updated — the Python-version
+row now reads "permanently unverifiable via the available evidence," the URL row
+corrected to the real live backend URL instead of the stale "do not exist yet"; new
+§15 "Deployment verification record" added with the specific facts above).
+
+**Tests performed:** No application code changed, so no local test suite re-run was
+required for this checkpoint — the three checks above were live requests against the
+deployed service, not local `pytest`/`vitest` runs.
+
+**Deployment status:** Backend LIVE at `https://corpus-poc.onrender.com`, commit
+`2747d20`. Frontend still NOT deployed.
+
+**Explicitly untouched by this checkpoint:** The RIL `/extract` ~55s 502 — not
+retried, not investigated further, remains a separate open item.
+
+**Next immediate task:** Two independent, still-open items: (1) the RIL 502
+investigation (needs Render request-level logs for that specific timestamp, still not
+obtained); (2) whether to pursue the Python-version question further through some
+channel other than this project's available Render log view (e.g. Render support
+directly) is an open decision, not a task in progress — no next step has been
+committed to on that front.
