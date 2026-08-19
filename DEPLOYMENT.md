@@ -268,8 +268,9 @@ rather than discovered by surprise:
 | Render request timeout accommodates a 147-page RIL extraction | UNKNOWN — EXTERNALLY UNVALIDATED (separate, still-open investigation; not touched by this checkpoint) |
 | Render free-tier temp disk/in-memory behavior across a real request lifecycle | CONFIRMED WORKING for a small document (§15) — unconfirmed at RIL scale |
 | Vercel deploys this Next.js app without further configuration | **CONFIRMED TRUE** — deployed successfully, loads correctly, no build/config issues found |
-| CORS works correctly across two real deployed origins | **CONFIRMED FALSE** — `CORPUS_ALLOWED_ORIGINS` on Render does not include the live Vercel origin; every cross-origin request from the frontend is rejected at the CORS layer. Blocking issue for the public smoke test. See §16. |
-| Actual deployed URLs | Backend: `https://corpus-poc.onrender.com` (live). Frontend: `https://corpus-poc.vercel.app` (live). **The two cannot currently communicate — see §16.** |
+| CORS works correctly across two real deployed origins | **CONFIRMED TRUE** (fixed 2026-08-19) — `CORPUS_ALLOWED_ORIGINS` on Render updated to include `https://corpus-poc.vercel.app`; preflight and real requests both succeed. See §17. |
+| Actual deployed URLs | Backend: `https://corpus-poc.onrender.com` (live). Frontend: `https://corpus-poc.vercel.app` (live). **Confirmed communicating correctly end-to-end for small documents — see §17.** |
+| Full public user journey (upload → extract → view → click → provenance) for a small document | **CONFIRMED WORKING** against the real deployed URLs — see §17 |
 
 ## 15. Deployment verification record — commit `2747d20` (2026-08-19)
 
@@ -359,3 +360,54 @@ before this checkpoint (extraction correctness, provenance, coordinate mapping, 
 rendering) is expected to work once that one setting is fixed, since none of it has
 changed — but that expectation is unverified until the fix is applied and this smoke
 test is re-run.
+
+## 17. Full integration verification — CORS fixed, public journey confirmed (2026-08-19)
+
+**Fix applied (by the project owner, in the Render dashboard — not a code change):**
+`CORPUS_ALLOWED_ORIGINS` on the Render backend updated to include
+`https://corpus-poc.vercel.app`.
+
+**CORS re-verified directly:**
+```
+curl -i -X OPTIONS https://corpus-poc.onrender.com/extract \
+  -H "Origin: https://corpus-poc.vercel.app" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type"
+```
+→ `200 OK`, `access-control-allow-origin: https://corpus-poc.vercel.app`.
+
+**Full public smoke test, small PDF only (RIL not used), all 12 checks PASS:**
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Frontend loads | PASS |
+| 2 | CORS preflight succeeds | PASS |
+| 3 | PDF upload reaches Render | PASS |
+| 4 | `POST /extract` returns 200 | PASS |
+| 5 | Document summary appears | PASS |
+| 6 | Page navigation works | PASS — controls correct; single-page test document means an actual page-to-page transition was not exercised |
+| 7 | Page image loads | PASS |
+| 8 | Bounding boxes align with the rendered page | PASS |
+| 9 | Clicking a word selects it | PASS |
+| 10 | Provenance panel: `document_id`, `page_number`, `order_index`, `extraction_method`, `bbox`, `confidence` | PASS — all fields correct, matching known values exactly |
+| 11 | New Document / reset | PASS |
+| 12 | Invalid-PDF handling via the public frontend | PASS (on retry after one transient `503` cold-start blip — see below) |
+
+**Transient event, not a defect:** the first attempt at check #12 hit a `503` (Render
+free-tier cold-start behavior, documented in §12). Confirmed via `curl .../health`
+that the backend was simply waking up; the retry succeeded immediately with the
+correct, specific `"Only .pdf files are accepted."` message.
+
+**Conclusion: the first public Corpus iteration is functional end-to-end.** A user can
+open `https://corpus-poc.vercel.app`, upload a PDF, and use the complete workflow —
+extraction, page viewing, bounding-box overlay, click-to-inspect provenance — against
+the live Render backend, with no local setup.
+
+**Still open, unrelated to this checkpoint:**
+- RIL-scale (147-page) `/extract` still fails after ~55s (separate investigation, not
+  touched here).
+- Deployed Python version remains unverifiable via the available Render log view
+  (§15) — orthogonal; the app works correctly regardless.
+- Multi-page navigation itself (not just the controls) has not yet been exercised
+  against the deployed backend.
+- Free-tier cold starts remain an expected, documented characteristic, not a defect.

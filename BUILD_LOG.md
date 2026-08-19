@@ -964,3 +964,72 @@ the Render dashboard's Environment settings for the backend service, then redepl
 restart it so the change takes effect, then re-run this exact smoke test. This is a
 dashboard-only change (no code, no commit needed) — flagged here rather than performed,
 since backend changes were explicitly out of scope for this task.
+
+---
+
+## 2026-08-19 — Full frontend↔backend integration verified: Iteration 1 works publicly
+
+**Task:** Re-run the smoke test after `CORPUS_ALLOWED_ORIGINS` was updated on Render
+(by the project owner, in the Render dashboard — not by this session) to include
+`https://corpus-poc.vercel.app`. Verify the complete public user journey with a small
+PDF only (RIL explicitly excluded, per instruction). No code/architecture changes made.
+
+**CORS verification (first, before any browser testing):**
+```
+curl -i -X OPTIONS https://corpus-poc.onrender.com/extract \
+  -H "Origin: https://corpus-poc.vercel.app" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type"
+```
+→ `200 OK`, `access-control-allow-origin: https://corpus-poc.vercel.app` — the exact
+gap from the previous checkpoint is now closed.
+
+**Full smoke test — all 12 checks tested against the live public site, all passed:**
+
+| # | Check | Result | Evidence |
+|---|---|---|---|
+| 1 | Frontend loads | **PASS** | Clean upload screen at `https://corpus-poc.vercel.app` |
+| 2 | CORS preflight succeeds | **PASS** | `200`, correct `access-control-allow-origin` (above) |
+| 3 | PDF upload reaches Render | **PASS** | `POST /extract` → `200` (network panel) |
+| 4 | `POST /extract` returns 200 | **PASS** | Same as above |
+| 5 | Document summary appears | **PASS** | Filename, `1 pages`, `pdfplumber_extract_words (pdfplumber 0.11.10)`, real `id` shown |
+| 6 | Page navigation works | **PASS**, with a caveat | `1 / 1` and prev/next controls rendered correctly; test PDF is single-page, so an actual page-to-page transition was **not** exercised this session |
+| 7 | Page image loads | **PASS** | `GET .../pages/1/image` → `200`; image visibly rendered |
+| 8 | Bounding boxes align with the page | **PASS** | Boxes visibly outline "Hello" and "World" in the correct positions |
+| 9 | Clicking a word selects it | **PASS** | "Hello" highlighted blue on click |
+| 10 | Provenance panel shows all required fields | **PASS** | `document_id` (matches header exactly), `page_number: 1`, `order_index: 0`, `extraction_method: pdfplumber_extract_words`, `bbox.x0/x1/top/bottom: 20/74.67/80.97/104.97`, `confidence:` explicit not-provided message — all correct |
+| 11 | New Document / reset works | **PASS** | Returns cleanly to the empty upload screen |
+| 12 | Invalid-PDF handling via the public frontend | **PASS** (on retry — see below) | Non-PDF upload → `"Only .pdf files are accepted."` shown, the backend's real message |
+
+**One transient event during testing, not a defect:** the first attempt at check #12
+hit a `503` (Render free-tier cold start/idle-spin behavior, same class of event as
+the previous checkpoint and already documented in `DEPLOYMENT.md` §12). A direct
+`curl .../health` immediately after returned `200`; retrying check #12 against the
+now-warm backend produced the correct, specific validation message on the first try.
+Not counted as a failure of the application — this is expected free-tier behavior,
+already documented, not something this task was scoped to fix.
+
+**Files modified:** `DEPLOYMENT.md` (§14 table finalized, new §17 recording this
+successful verification).
+
+**Deployment status:** Frontend LIVE at `https://corpus-poc.vercel.app`. Backend LIVE
+at `https://corpus-poc.onrender.com` (commit `2747d20`). **The two now communicate
+correctly end-to-end for small documents**, verified against the real public URLs, not
+just locally.
+
+**Known limitations carried forward (unchanged by this session):**
+- The RIL-scale (147-page) `/extract` request still fails after ~55s on this Render
+  configuration — separate, still-open investigation, not touched here.
+- Which Python version Render is actually running remains unverifiable through the
+  available log view (prior entries) — orthogonal to this checkpoint; the deployment
+  works correctly regardless of which version it turned out to be.
+- Multi-page navigation (prev/next transitioning between real pages) has still not
+  been exercised against the deployed backend — only a single-page document was used
+  per this task's "small PDF only" constraint.
+- Occasional free-tier cold-start delays/`503`s should be expected on the first
+  request after a period of inactivity.
+
+**Next immediate task:** None mandatory — the core public iteration is functional.
+Optional follow-ups, not started: exercise multi-page navigation against a small
+multi-page (non-RIL) PDF on the deployed site; continue the separate RIL 502
+investigation if/when prioritized.
