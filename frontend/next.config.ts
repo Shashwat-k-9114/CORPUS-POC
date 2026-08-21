@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Vercel's Next 16.3 adapter does not emit the root NFT consumed by
+  // standalone finalization. Docker Compose still needs standalone output.
+  output: process.env.VERCEL ? undefined : "standalone",
   poweredByHeader: false,
   async headers() {
     return [{
