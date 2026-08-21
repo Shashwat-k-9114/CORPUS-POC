@@ -62,6 +62,14 @@ app.add_middleware(
 )
 
 
+def _cors_error_headers(request: Request) -> dict[str, str]:
+    """Keep browser-visible CORS headers on responses returned before CORS middleware."""
+    origin = request.headers.get("Origin", "")
+    if origin and origin in _allowed_origins:
+        return {"Access-Control-Allow-Origin": origin, "Vary": "Origin"}
+    return {}
+
+
 @app.middleware("http")
 async def security_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     path = request.url.path
@@ -69,18 +77,19 @@ async def security_middleware(request: Request, call_next: Callable[[Request], A
         try:
             settings = Settings.from_env()
         except ConfigurationError as exc:
-            return JSONResponse({"detail": str(exc)}, status_code=503)
+            return JSONResponse({"detail": str(exc)}, status_code=503, headers=_cors_error_headers(request))
         if settings.review_token:
             supplied = request.headers.get("X-Corpus-Review-Token", "")
             if not supplied or not hmac.compare_digest(supplied, settings.review_token):
-                return JSONResponse({"detail": "Review access token required."}, status_code=401, headers={"WWW-Authenticate": "X-Corpus-Review-Token"})
+                headers = {"WWW-Authenticate": "X-Corpus-Review-Token", **_cors_error_headers(request)}
+                return JSONResponse({"detail": "Review access token required."}, status_code=401, headers=headers)
         client = request.client.host if request.client else "unknown"
         now = time.monotonic()
         window = _rate_windows[client]
         while window and now - window[0] >= 60:
             window.popleft()
         if len(window) >= settings.rate_limit_per_minute:
-            return JSONResponse({"detail": "Request rate limit exceeded; retry shortly."}, status_code=429)
+            return JSONResponse({"detail": "Request rate limit exceeded; retry shortly."}, status_code=429, headers=_cors_error_headers(request))
         window.append(now)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
