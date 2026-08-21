@@ -1,6 +1,6 @@
-import app.main as main_module
 from fastapi.testclient import TestClient
 
+import app.main as main_module
 from app.main import app
 from tests.pdf_fixtures import (
     blank_page_pdf,

@@ -1,5 +1,3 @@
-from typing import Optional
-
 from pydantic import BaseModel
 
 
@@ -16,7 +14,7 @@ class Region(BaseModel):
     page_number: int
     order_index: int
     extraction_method: str
-    confidence: Optional[float] = None
+    confidence: float | None = None
 
 
 class PageExtraction(BaseModel):

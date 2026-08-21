@@ -1,413 +1,118 @@
-# Corpus — Deployment Guide (Prototype)
+# CORPUS deployment runbook
 
-**Status of this document: PREPARED. No external deployment has occurred.** Every
-claim below is tagged `PREPARED`, `LOCALLY VALIDATED`, or `EXTERNALLY UNVALIDATED` —
-read those tags literally. See `BUILD_LOG.md` for the session this was written in and
-`DECISIONS.md` (`DEC-009`) for why this architecture was chosen.
+## Local production topology
 
----
+`docker compose up -d --build` starts PostgreSQL, migrations, FastAPI, the independent
+worker, and the production Next.js frontend. The API and worker share only PostgreSQL
+and the configured BlobStore contract; local Compose uses the persistent `blob_data`
+volume. The frontend is at `http://127.0.0.1:3000`.
 
-## 1. Architecture
-
-```
-                    HTTPS                              HTTPS
-   Browser  ─────────────────────►   Vercel   ─────────────────────►   (none — frontend
-      │                            (Next.js,                            calls Render
-      │                             static +                            directly from
-      │                             client JS)                          the browser)
-      │
-      │  All API calls are made directly from the browser's JS to Render.
-      │  Vercel serves only the static/client Next.js app; it is not a proxy.
-      ▼
-   HTTPS, CORS-restricted to the Vercel origin
-      │
-      ▼
-   Render Web Service (persistent Python process)
-      - FastAPI app (uvicorn)
-      - in-memory document registry (30-min TTL, DEC-008)
-      - local ephemeral disk: one temp dir per uploaded PDF
-      - GET  /health
-      - POST /extract
-      - GET  /documents/{id}/pages/{n}/image
-      - NO database, NO permanent storage, NO auth
+```powershell
+docker compose up -d --build
+docker compose run --rm migrate
+.\scripts\validate-deployment.ps1
+docker compose ps
 ```
 
-- **Frontend:** Vercel (Next.js 16, static + client-rendered).
-- **Backend:** Render, **Web Service** (a persistent container process) — explicitly
-  **not** a serverless/Function product. See §2 for why.
-- No other infrastructure. No database. No queue. No object storage. No auth provider.
+## Review deployment topology
 
-## 2. Why the backend is not a Vercel/serverless function
+The zero-cost review compromise is:
 
-See `DECISIONS.md` `DEC-009` for the full record. Short version: the backend performs
-synchronous, CPU-bound PDF extraction that can run well over a minute for a large
-document (measured: ~76–90s for the 147-page RIL report in Phases 3–5), and it keeps
-state — an in-memory document registry plus a temp file per document — that must
-survive from the `POST /extract` request to later `GET .../image` requests, for up to
-30 minutes. Typical serverless/Function platforms (including Vercel Functions)
-constrain request duration far below that on free/low tiers and do not guarantee a
-warm, single, stateful process across separate invocations. A conventional
-always-running web service process is the correct fit for *this specific backend* as
-built — not a claim about Corpus's eventual production architecture.
-
-## 3. Required accounts
-
-All `EXTERNALLY UNVALIDATED` — no accounts have been created or logged into during
-this preparation work.
-
-- A Vercel account, connected to whatever Git host will hold this repository (a GitHub
-  remote does not exist yet for this project — see §9).
-- A Render account, same caveat.
-
-## 4. Required environment variables
-
-| Variable | Used by | Where set | Example |
-|---|---|---|---|
-| `CORPUS_ALLOWED_ORIGINS` | backend (CORS allow-list) | Render dashboard → Environment | `https://corpus-frontend.vercel.app` |
-| `NEXT_PUBLIC_API_BASE_URL` | frontend (API client) | Vercel dashboard → Environment Variables | `https://corpus-backend.onrender.com` |
-
-Local-dev defaults (already in place, unchanged by this phase):
-`backend/.env.example` (`CORPUS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000`),
-`frontend/.env.example` (`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`).
-Production placeholders: `backend/.env.production.example`,
-`frontend/.env.production.example` — both contain only placeholder URLs
-(`REPLACE-WITH-DEPLOYED-...`), no real values, no secrets.
-
-No other environment variables exist in the application. There are no API keys,
-database URLs, or credentials of any kind in this prototype.
-
-## 5. Local development
-
-Unchanged from Phase 5 — see root `README.md`, `backend/README.md`,
-`frontend/README.md`. Summary:
-
-```
-# backend
-cd backend && python -m venv .venv && .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-
-# frontend
-cd frontend && npm install && npm run dev
+```text
+Vercel Hobby (Next.js) → Render Free Web Service (FastAPI + worker processes)
+                                      ↓
+                           Supabase Postgres + private S3 bucket
 ```
 
-**LOCALLY VALIDATED** (Phases 2–5): both run and communicate correctly on
-`localhost`.
+Render local disk is never durable. The production BlobStore is `S3BlobStore` against
+Supabase Storage's S3-compatible endpoint. A production system should split API and
+worker into separate services; this POC keeps them as independently supervised OS
+processes in one Render container because of the free-tier constraint.
 
-## 6. Render setup steps (backend) — PREPARED, not yet executed
+## Supabase setup
 
-1. Push this repository to a Git host Render can read (GitHub/GitLab/Bitbucket). **Not
-   done yet** — no remote is configured (see §9).
-2. In the Render dashboard: New → Blueprint, point it at the repo, and Render should
-   read `backend/render.yaml`. Alternatively, create the Web Service manually with:
-   - Root directory: `backend`
-   - Build command: `pip install -r requirements.txt`
-   - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-   - Health check path: `/health`
-   - Runtime: Python, intended version `3.12.7`. Originally attempted via
-     `backend/runtime.txt`, which **was confirmed not to be honored by Render** — its
-     Python-version resolution only recognizes a `PYTHON_VERSION` env var or a
-     `.python-version` file, not the Heroku-style `runtime.txt` filename. The
-     deployment that used `runtime.txt` actually ran Render's own default, **Python
-     3.14.3** (matching Render's documented default for services created on/after
-     2026-02-11), not 3.12.7. Full evidence trail: `BUILD_LOG.md`, 2026-08-19 "Python
-     runtime verification."
-     
-     **Fix applied:** `backend/runtime.txt` removed; replaced with a `.python-version`
-     file (content: `3.12.7`) placed in **two locations** — `.python-version` at the
-     true repository root, and `backend/.python-version` inside the service's
-     `rootDir`. This dual placement is a **deliberate, unresolved-ambiguity hedge**,
-     not a claim that Render requires or documents both: Render's own docs say
-     `.python-version` belongs "in the root of your repo," but a *separate* Render doc
-     on monorepo services states files outside a service's configured `rootDir` are
-     not available to it at build time — those two statements do not clearly resolve
-     which "root" applies when `rootDir: backend` is set, and no further Render
-     documentation or support source was found that settles it. Placing the identical
-     file in both locations avoids betting on either reading. **Redeployed and
-     confirmed live (commit `2747d20`), but which Python version was actually
-     selected remains unverifiable** — Render's available log view for this service
-     does not expose the build-resolution line needed to confirm it. See §15.
-3. Set `CORPUS_ALLOWED_ORIGINS` in the Render dashboard once the Vercel URL is known
-   (chicken-and-egg with step in §7 — deploy the backend first with a placeholder or
-   with the frontend's *expected* Vercel URL, then correct it if the actual assigned
-   URL differs).
-4. Deploy. Confirm `GET https://<render-url>/health` returns `200` before touching the
-   frontend.
+1. Create one Supabase Free project.
+2. Apply `backend/migrations/001_initial.sql`, `002_admission_idempotency.sql`, and
+   `003_durable_processing.sql` using the SQL editor or `python -m app.db.migrate`.
+3. Use the Supavisor session/transaction-compatible PostgreSQL URL with
+   `sslmode=require`; do not use a local filesystem path.
+4. Create a private Storage bucket named `corpus-private`.
+5. Create server-only S3 credentials and record the project S3 endpoint, region,
+   access key, secret key, and bucket name.
 
-`backend/render.yaml` schema is `PREPARED` against Render's documented Blueprint
-format from training knowledge — **EXTERNALLY UNVALIDATED**, no live Render docs
-lookup or actual Render account was available this session. Before first deploy,
-confirm in Render's current docs: the `runtime: python` field name (older Render docs
-used `env: python` — Render may still require one or the other), and that `rootDir`
-and `healthCheckPath` are still valid top-level service fields.
+Set these only in Render's secret environment store, using
+`backend/.env.production.example` as the inventory:
 
-## 7. Vercel setup steps (frontend) — PREPARED, not yet executed
+`CORPUS_DATABASE_URL`, `CORPUS_S3_ENDPOINT_URL`, `CORPUS_S3_REGION`,
+`CORPUS_S3_BUCKET`, `CORPUS_S3_ACCESS_KEY`, `CORPUS_S3_SECRET_KEY`,
+`CORPUS_REVIEW_TOKEN`, and `CORPUS_ALLOWED_ORIGINS`.
 
-1. Push this repository to a Git host (§9).
-2. In Vercel: New Project → import the repo → set **Root Directory** to `frontend`.
-   Framework preset should auto-detect Next.js.
-3. Set `NEXT_PUBLIC_API_BASE_URL` in Vercel's Environment Variables (Production, and
-   Preview if you want preview deployments to also work) to the Render backend URL
-   from §6.
-4. Deploy.
+Validate the service without revealing secrets:
 
-**EXTERNALLY UNVALIDATED** — Vercel's exact current UI/CLI flow was not exercised.
-
-## 8. Connecting frontend to backend
-
-1. Deploy backend first (§6), note its URL.
-2. Set `NEXT_PUBLIC_API_BASE_URL` on Vercel to that URL, deploy/redeploy frontend.
-3. Note the resulting Vercel URL, set `CORPUS_ALLOWED_ORIGINS` on Render to that exact
-   URL (scheme + host, no trailing slash), and redeploy/restart the Render service so
-   the new env var takes effect.
-
-## 9. CORS configuration
-
-The backend's CORS allow-list (`CORPUS_ALLOWED_ORIGINS`) must be set to the **exact**
-deployed Vercel origin(s), comma-separated, e.g.:
-
-```
-CORPUS_ALLOWED_ORIGINS=https://corpus-frontend.vercel.app
+```powershell
+docker compose exec api python -m app.diagnostics
 ```
 
-If Vercel preview deployments (per-branch/PR URLs) need to reach the API too, add each
-one explicitly. **Do not** set this to `*` — the app code does not support a wildcard
-combined with credentials, and more importantly this API accepts uploaded documents;
-an unrestricted allow-list is not appropriate even for a prototype. This is
-unchanged from the constraint already documented in `backend/README.md` and
-`DECISIONS.md` `DEC-008`.
+The same command is the Render shell diagnostic. It reports only database/storage
+status and the selected backend.
 
-## 10. Health check
+## Render setup
 
-`GET /health` → `{"status": "ok", "service": "corpus-backend", "version": "0.1.0"}`.
-**LOCALLY VALIDATED** repeatedly since Phase 2. Use this as the Render health-check
-path (already set in `render.yaml`) and as the first manual check after any deploy,
-before testing anything else.
+Use the repository-root `render.yaml` as the sole Blueprint. Render discovers that
+path by default. Set `CORPUS_*` secret values in the Render dashboard, then deploy
+the Docker web service.
+Render supplies `PORT`.
 
-## 11. Deployment smoke-test procedure — to run once actually deployed
+- Build: Render Docker build from `backend/Dockerfile`.
+- Start: `./entrypoint.sh`.
+- Health: `/health`.
+- Readiness: `/ready`.
+- Migrations run before the API and worker are started.
+- A worker exit terminates the container so Render restarts the pair.
 
-All steps below are **EXTERNALLY UNVALIDATED** until performed against real URLs.
+Render Free may sleep after roughly 15 minutes of inactivity. The first browser request can be a cold start;
+the worker pauses while asleep, but PostgreSQL jobs, leases, canonical objects, and
+derived artifacts remain durable. Expired leases recover when the service wakes. No
+self-pinging is used.
 
-1. `curl https://<render-url>/health` → expect `200` and the JSON above.
-2. Open `https://<vercel-url>` in a browser with DevTools open (Network + Console
-   tabs).
-3. Upload a small PDF (a single page is enough) → confirm the request to
-   `POST /extract` succeeds with no CORS error in the console, and the UI shows the
-   document summary.
-4. Select a page → confirm `GET .../pages/1/image` returns `200` with `image/png` and
-   the coordinate headers (`X-Page-Width-Points` etc.) are visible in the Network
-   panel's response headers (confirms `expose_headers` is working from a real
-   cross-origin request, not just locally).
-5. Confirm the bounding-box overlay is visible and click a word → confirm the
-   Provenance panel populates correctly.
-6. If Render's plan/timeout allows it (see §12): upload the RIL annual report
-   (`../poc-01/documents/native/RIL_IAR 2026.pdf`, read-only, do not modify), and
-   specifically test the "Page 22" and "Page 81" quick-jump buttons, repeating steps
-   4–5 on each. This is the same scenario already fully verified locally in Phase 5 —
-   the point of testing it again here is solely to confirm the *deployed* environment
-   behaves the same way, not to re-derive new extraction results.
+## Vercel setup
 
-## 12. Known limitations to expect on a free/low-cost tier
+Create a Vercel Hobby project with root directory `frontend`. Set:
 
-None of the following have been observed on a real deployment — they are documented
-risks based on the backend's known behavior (Phases 3–5) and typical free-tier
-platform constraints, so they can be checked deliberately during the smoke test
-rather than discovered by surprise:
+- `NEXT_PUBLIC_API_BASE_URL=https://<render-service>.onrender.com`
+- `NEXT_PUBLIC_REVIEW_TOKEN_REQUIRED=true`
 
-- **Request timeout:** the 147-page RIL document took ~76–90s to extract locally.
-  Some platforms/proxies impose a request timeout (commonly 30s–100s on free tiers)
-  that could cut this off before the response completes. If this happens, it will
-  need to be addressed by increasing the platform's timeout setting (if available on
-  the plan) — not by changing the extraction to be asynchronous, which would be a
-  real architecture change outside this phase's scope.
-- **Cold starts / idle spin-down:** free-tier Render services typically spin down
-  after a period of inactivity and take tens of seconds to wake on the next request.
-  The very first request after idle may time out or feel slow; retry.
-- **In-memory registry and temp files do not survive a restart.** A spin-down-and-wake
-  cycle, or any redeploy, clears the document registry exactly like a local
-  `Stop-Process` — this is consistent with `DEC-004`/`DEC-008`'s existing ephemeral
-  design, not a new limitation, but it is more *frequent* on a free tier that
-  auto-sleeps than it is in local development.
-- **Upload size:** the app enforces its own 20 MB cap (`MAX_UPLOAD_SIZE_BYTES` in
-  `backend/app/main.py`) regardless of platform; the RIL PDF (~9.68 MB) is within it.
-  Some platforms/proxies impose their own separate request body limit — unverified
-  against Render specifically.
-- **CPU/memory:** page rendering at 150 DPI and word-level extraction across ~150
-  pages is measurably CPU-bound (Phase 3–4 timings). A free-tier instance with a
-  fraction of a shared CPU may be slower than local development, potentially pushing
-  the 147-page RIL extraction closer to or past a request timeout.
+The reviewer token is never a `NEXT_PUBLIC_*` variable. Deploy with the standard
+Vercel build (`npm ci`, `npm run build`) and verify the production URL before sharing.
 
-## 13. Rollback / basic troubleshooting
+## Verification and rollback
 
-- **Frontend shows a network error / CORS error in console:** check
-  `NEXT_PUBLIC_API_BASE_URL` on Vercel matches the actual Render URL exactly (scheme,
-  host, no typos), and `CORPUS_ALLOWED_ORIGINS` on Render matches the actual Vercel
-  URL exactly. A mismatch on either side is the most likely cause — this is not a code
-  bug, it is a configuration bug, and both apps already log/report this clearly (the
-  Render CORS middleware silently drops disallowed origins by design; there is no
-  server-side error to see, only a browser-side console error).
-- **`GET /health` fails or times out:** check the Render service's own logs/dashboard
-  for a crash or a cold-start-in-progress state before assuming the code is broken —
-  this endpoint has been stable since Phase 2 locally.
-- **Extraction request times out on a large document:** see §12 — this is a platform
-  timeout/tier limitation, not a code defect, given the same document already
-  succeeds locally (Phase 5).
-- **To roll back:** redeploy the previous known-good commit on both Vercel and Render
-  (both platforms keep deployment history natively). No database migrations or data
-  exist to roll back — the app has no persistent state by design (`DEC-004`).
+Run local gates before provider deployment:
 
-## 14. Summary: what is and isn't verified
-
-| Area | Status |
-|---|---|
-| Backend runs locally, all endpoints work | LOCALLY VALIDATED (Phases 2–5) |
-| Frontend runs locally, full workflow works | LOCALLY VALIDATED (Phase 5) |
-| `backend/render.yaml` schema correctness | PREPARED — EXTERNALLY UNVALIDATED |
-| `runtime.txt` pins the deployed Python version | **CONFIRMED FALSE** (historical) — Render doesn't recognize `runtime.txt`; the deployment that used it ran Render's default, Python 3.14.3, not 3.12.7. File removed. See `BUILD_LOG.md` 2026-08-19 "Python runtime verification." |
-| Dual `.python-version` (root + `backend/`) fixes the deployed Python version to 3.12.7 | **PERMANENTLY UNVERIFIABLE via the available evidence** — commit `2747d20` (containing both files) is deployed and live, but Render's runtime/deploy log view for this service does not expose the build-time "Using Python version..." line, so which Python version was actually selected — and which `.python-version` location (if either) was honored — **cannot be confirmed**. Do not assume `3.12.7` is running. See §15. |
-| Render request timeout accommodates a 147-page RIL extraction | UNKNOWN — EXTERNALLY UNVALIDATED (separate, still-open investigation; not touched by this checkpoint) |
-| Render free-tier temp disk/in-memory behavior across a real request lifecycle | CONFIRMED WORKING for a small document (§15) — unconfirmed at RIL scale |
-| Vercel deploys this Next.js app without further configuration | **CONFIRMED TRUE** — deployed successfully, loads correctly, no build/config issues found |
-| CORS works correctly across two real deployed origins | **CONFIRMED TRUE** (fixed 2026-08-19) — `CORPUS_ALLOWED_ORIGINS` on Render updated to include `https://corpus-poc.vercel.app`; preflight and real requests both succeed. See §17. |
-| Actual deployed URLs | Backend: `https://corpus-poc.onrender.com` (live). Frontend: `https://corpus-poc.vercel.app` (live). **Confirmed communicating correctly end-to-end for small documents — see §17.** |
-| Full public user journey (upload → extract → view → click → provenance) for a small document | **CONFIRMED WORKING** against the real deployed URLs — see §17 |
-
-## 15. Deployment verification record — commit `2747d20` (2026-08-19)
-
-Final record of what this specific checkpoint actually confirmed. Superseded facts
-from earlier, pre-fix deploys (e.g. the original 3.14.3-default finding) remain in
-`BUILD_LOG.md`'s dated entries rather than being edited out.
-
-- **Commit deployed:** `2747d20` (`Fix Render Python version configuration` — removes
-  `backend/runtime.txt`, adds `.python-version` at repo root and in `backend/`). Pushed
-  to `origin/master`; Render auto-deployed from it.
-- **`GET /health`** → `200 OK`.
-- **`POST /extract`** with a small (1-page, 2-word) test PDF → `200 OK`, valid
-  `document_id`, correct page/region/bbox structure, `confidence: null` — matches
-  local/prior-deploy behavior exactly.
-- **`GET /documents/{document_id}/pages/1/image`** (using the `document_id` from the
-  above request) → `200 OK`, `Content-Type: image/png`.
-- **Deployment starts successfully with Uvicorn, `WEB_CONCURRENCY=1`:** confirmed for
-  this service's configuration via the build log from the *original* deploy (Render
-  sets `WEB_CONCURRENCY=1` "based on available CPUs in the instance," and the service
-  starts as `uvicorn app.main:app...`, both unchanged since — `render.yaml`'s start
-  command was not modified by this fix). Not independently re-observed in a fresh log
-  for this exact commit, since that log was not available to inspect for this
-  checkpoint. The three live endpoint checks above are strong indirect confirmation
-  the same startup succeeded again for this deploy (all three require the app running
-  correctly under uvicorn).
-- **Python version actually selected: EXTERNALLY UNVERIFIED — explicitly, not
-  `3.12.7`.** Render's available runtime/deploy log view for this service does not
-  expose the build-time "Using Python version..." resolution line, so there is no
-  evidence to confirm or deny that either `.python-version` file (root or `backend/`)
-  was honored, or that Render used a different default again. **Do not claim 3.12.7 is
-  running.** This is now treated as permanently unverifiable through the log access
-  available for this project, not merely "pending more investigation."
-- **`.python-version` placement ambiguity:** NOT resolved by this deployment — the one
-  piece of evidence that would have settled it (the build-resolution log line) was not
-  obtainable.
-- **RIL `/extract` ~55s 502:** deliberately not retried or touched by this checkpoint;
-  remains a separate, still-open, independent investigation.
-
-## 16. Frontend deployment and smoke test — commit `2747d20` backend, Vercel frontend (2026-08-19)
-
-**Live URLs:**
-- Frontend: `https://corpus-poc.vercel.app`
-- Backend: `https://corpus-poc.onrender.com`
-
-**Result: blocked by a CORS configuration gap, not a code defect.** The frontend
-deployed cleanly and loads correctly, but cannot successfully call the backend from
-the browser.
-
-**Root cause, confirmed directly:**
+```powershell
+docker compose run --rm migrate
+docker compose run --rm api sh -c "PYTHONPATH=/app python -m pytest -q"
+cd frontend
+npm test -- --run
+npm run lint
+npx tsc --noEmit
+npm run build
+npm run test:e2e
 ```
-curl -i -X OPTIONS https://corpus-poc.onrender.com/extract \
-  -H "Origin: https://corpus-poc.vercel.app" \
-  -H "Access-Control-Request-Method: POST" \
-  -H "Access-Control-Request-Headers: content-type"
+
+For rollback, redeploy the last known-good Render image and Vercel deployment. Do not
+roll back migrations destructively; migrations are forward-only and canonical objects
+are immutable. Teardown is provider-console scoped: remove the Vercel project, Render
+service, and Supabase project only after exporting any review evidence.
+
+## Demo data
+
+The only destructive local reset is explicitly scoped to the `demo` custodian:
+
+```powershell
+.\scripts\demo.ps1 -Action reset -ConfirmReset
+.\scripts\demo.ps1 -Action seed
 ```
-→ `400 Bad Request`, body `Disallowed CORS origin`. The Render backend's
-`CORPUS_ALLOWED_ORIGINS` environment variable does not include
-`https://corpus-poc.vercel.app`. This is exactly the manual step described in §6/§9
-of this document ("Set `CORPUS_ALLOWED_ORIGINS` ... once the Vercel URL is known") —
-it was not carried out, or was set to a value that doesn't match the actual assigned
-Vercel URL.
 
-**Smoke-test results (small test PDF only, per instruction — RIL not used):**
-
-| # | Check | Result |
-|---|---|---|
-| 1 | Public frontend loads | **PASS** |
-| 2 | Frontend communicates with backend | **FAIL** — CORS block, see above |
-| 3–10 | Upload → extract → summary → page nav → image → bboxes → word click → provenance | **NOT REACHABLE** — all depend on #2 |
-| 11 | New Document / reset | **NOT REACHABLE** — control only renders after a successful extraction |
-| 12 | Invalid-PDF error handling | **FAIL** — same CORS block intercepts the request before the backend's own `.pdf`-only validation ever runs; the UI shows the generic `"Network error while uploading"` message instead of the backend's specific one |
-
-One transient, unrelated event during testing: the first attempt hit a `503` (Render
-free-tier cold start, per §12); a direct `curl .../health` immediately after returned
-`200`. Not the cause of the sustained failure — every later attempt, backend
-confirmed warm, failed identically with the CORS block above.
-
-**Fix required (not performed — outside this task's scope, dashboard-only, no code
-change):** In the Render dashboard, set the backend service's `CORPUS_ALLOWED_ORIGINS`
-environment variable to `https://corpus-poc.vercel.app`, then redeploy/restart the
-service, then re-run this smoke test.
-
-**Is the first public Corpus iteration ready to send to Piyush Sir? Not yet.** Both
-halves are deployed and independently healthy, but they cannot talk to each other
-until the CORS environment variable above is corrected. Everything else validated
-before this checkpoint (extraction correctness, provenance, coordinate mapping, page
-rendering) is expected to work once that one setting is fixed, since none of it has
-changed — but that expectation is unverified until the fix is applied and this smoke
-test is re-run.
-
-## 17. Full integration verification — CORS fixed, public journey confirmed (2026-08-19)
-
-**Fix applied (by the project owner, in the Render dashboard — not a code change):**
-`CORPUS_ALLOWED_ORIGINS` on the Render backend updated to include
-`https://corpus-poc.vercel.app`.
-
-**CORS re-verified directly:**
-```
-curl -i -X OPTIONS https://corpus-poc.onrender.com/extract \
-  -H "Origin: https://corpus-poc.vercel.app" \
-  -H "Access-Control-Request-Method: POST" \
-  -H "Access-Control-Request-Headers: content-type"
-```
-→ `200 OK`, `access-control-allow-origin: https://corpus-poc.vercel.app`.
-
-**Full public smoke test, small PDF only (RIL not used), all 12 checks PASS:**
-
-| # | Check | Result |
-|---|---|---|
-| 1 | Frontend loads | PASS |
-| 2 | CORS preflight succeeds | PASS |
-| 3 | PDF upload reaches Render | PASS |
-| 4 | `POST /extract` returns 200 | PASS |
-| 5 | Document summary appears | PASS |
-| 6 | Page navigation works | PASS — controls correct; single-page test document means an actual page-to-page transition was not exercised |
-| 7 | Page image loads | PASS |
-| 8 | Bounding boxes align with the rendered page | PASS |
-| 9 | Clicking a word selects it | PASS |
-| 10 | Provenance panel: `document_id`, `page_number`, `order_index`, `extraction_method`, `bbox`, `confidence` | PASS — all fields correct, matching known values exactly |
-| 11 | New Document / reset | PASS |
-| 12 | Invalid-PDF handling via the public frontend | PASS (on retry after one transient `503` cold-start blip — see below) |
-
-**Transient event, not a defect:** the first attempt at check #12 hit a `503` (Render
-free-tier cold-start behavior, documented in §12). Confirmed via `curl .../health`
-that the backend was simply waking up; the retry succeeded immediately with the
-correct, specific `"Only .pdf files are accepted."` message.
-
-**Conclusion: the first public Corpus iteration is functional end-to-end.** A user can
-open `https://corpus-poc.vercel.app`, upload a PDF, and use the complete workflow —
-extraction, page viewing, bounding-box overlay, click-to-inspect provenance — against
-the live Render backend, with no local setup.
-
-**Still open, unrelated to this checkpoint:**
-- RIL-scale (147-page) `/extract` still fails after ~55s (separate investigation, not
-  touched here).
-- Deployed Python version remains unverifiable via the available Render log view
-  (§15) — orthogonal; the app works correctly regardless.
-- Multi-page navigation itself (not just the controls) has not yet been exercised
-  against the deployed backend.
-- Free-tier cold starts remain an expected, documented characteristic, not a defect.
+The fixtures are synthetic/public review PDFs only. No personal or confidential source
+material is part of the deployment workflow.

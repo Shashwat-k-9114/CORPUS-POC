@@ -1,0 +1,40 @@
+# Canonical Render Blueprint. Render discovers render.yaml at repository root by
+# default; all paths below are therefore relative to this repository root.
+services:
+  - type: web
+    name: corpus-backend
+    runtime: docker
+    rootDir: .
+    plan: free
+    dockerfilePath: backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: CORPUS_ENVIRONMENT
+        value: production
+      - key: CORPUS_DATABASE_URL
+        sync: false
+      - key: CORPUS_BLOB_STORE_BACKEND
+        value: s3
+      - key: CORPUS_BLOB_STORE_ROOT
+        value: /tmp/corpus-blobs
+      - key: CORPUS_S3_ENDPOINT_URL
+        sync: false
+      - key: CORPUS_S3_REGION
+        sync: false
+      - key: CORPUS_S3_BUCKET
+        sync: false
+      - key: CORPUS_S3_ACCESS_KEY
+        sync: false
+      - key: CORPUS_S3_SECRET_KEY
+        sync: false
+      - key: CORPUS_REVIEW_TOKEN
+        sync: false
+      - key: CORPUS_ALLOWED_ORIGINS
+        sync: false
+      - key: CORPUS_MAX_UPLOAD_SIZE_BYTES
+        value: "52428800"
+      - key: CORPUS_RATE_LIMIT_PER_MINUTE
+        value: "120"

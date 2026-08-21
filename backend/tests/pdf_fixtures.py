@@ -36,6 +36,45 @@ def build_minimal_pdf(text: str = "", page_width: int = 200, page_height: int = 
     return bytes(buf)
 
 
+def build_multi_page_pdf(page_count: int = 3, text_prefix: str = "Page") -> bytes:
+    """Build a small valid PDF with independent, text-bearing pages."""
+    if page_count < 1:
+        raise ValueError("page_count must be positive")
+    page_ids = list(range(3, 3 + page_count))
+    font_id = 3 + page_count
+    content_ids = list(range(font_id + 1, font_id + 1 + page_count))
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        (
+            f"<< /Type /Pages /Kids [{ ' '.join(f'{item} 0 R' for item in page_ids) }] "
+            f"/Count {page_count} >>"
+        ).encode(),
+    ]
+    for page_id, content_id in zip(page_ids, content_ids):
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>".encode()
+        )
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    for page_number in range(1, page_count + 1):
+        stream = f"BT /F1 24 Tf 20 100 Td ({text_prefix} {page_number}) Tj ET".encode("latin-1")
+        objects.append(f"<< /Length {len(stream)} >>\nstream\n".encode() + stream + b"\nendstream")
+
+    buf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, obj_body in enumerate(objects, start=1):
+        offsets.append(len(buf))
+        buf += f"{index} 0 obj\n".encode() + obj_body + b"\nendobj\n"
+    xref_offset = len(buf)
+    object_count = len(objects) + 1
+    buf += f"xref\n0 {object_count}\n".encode()
+    buf += b"0000000000 65535 f \n"
+    for offset in offsets[1:]:
+        buf += f"{offset:010d} 00000 n \n".encode()
+    buf += f"trailer\n<< /Size {object_count} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF".encode()
+    return bytes(buf)
+
+
 def valid_pdf_with_text() -> bytes:
     return build_minimal_pdf(text="Hello World", page_width=200, page_height=200)
 

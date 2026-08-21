@@ -1,90 +1,63 @@
-# Corpus (prototype)
+# CORPUS v0.1.0 POC
 
-Corpus is a document-understanding and finding system. This repository is the first
-independently deployable **prototype**: upload a native-text PDF, extract its content
-with page and word-level provenance, and inspect the extraction alongside the original
-page.
+CORPUS is a durable document-admission and asynchronous page-processing proof of
+concept. Uploads are streamed into custodian-scoped canonical storage; PostgreSQL
+holds source identity, provenance, enrollment, jobs, checkpoints, and derived
+lineage. Canonical bytes are never replaced by derived output.
 
-This is a small, fast-iterating prototype, not the final Corpus architecture. See
-`PROJECT.md` for product scope and vision.
+## Local production-shaped stack
 
-## Status
+The Compose stack contains PostgreSQL, a migration one-shot, API, worker, and the
+standalone Next.js frontend:
 
-**Working end-to-end locally.** Upload a PDF in the browser, extract it, browse pages,
-see word-level bounding boxes overlaid on the rendered page, click a word to inspect
-its provenance. Not yet deployed. See `BUILD_LOG.md` for the current, authoritative
-state of what has actually been built and verified.
-
-## Project documents
-
-- [`PROJECT.md`](./PROJECT.md) — what Corpus is, current scope, roadmap, status
-- [`REQUIREMENTS.md`](./REQUIREMENTS.md) — itemized product/technical requirements
-- [`DECISIONS.md`](./DECISIONS.md) — architecture/product decision record
-- [`BUILD_LOG.md`](./BUILD_LOG.md) — session-by-session build history (source of truth
-  for "what works right now")
-- [`DEPLOYMENT.md`](./DEPLOYMENT.md) — deployment architecture, setup steps, and
-  environment variables (Vercel + Render). **Deployment-readiness is prepared but no
-  external deployment has occurred yet** — see that document's status tags.
-
-## Planned architecture
-
-- **Frontend:** Next.js + TypeScript (`frontend/`)
-- **Backend:** Python + FastAPI (`backend/`)
-- **Extraction:** pdfplumber, word-level bounding boxes only (v1)
-- **Storage:** ephemeral, no database in v1
-
-See `DECISIONS.md` for the reasoning behind each of these choices.
-
-## Relationship to `../poc-01/`
-
-`../poc-01/` contains earlier, completed research (pdfplumber, PaddleOCR, and an
-in-progress Marker investigation) that informs this prototype's extraction choices. It
-is **read-only** research evidence — never modified, moved, or duplicated by this
-project. This repository reads from it (e.g., for test documents) but never writes to
-it.
-
-## Local development
-
-Run the backend and frontend in two terminals.
-
-**Backend** (see `backend/README.md` for full detail):
-
-```
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+```powershell
+docker compose up -d --build
+docker compose ps
 ```
 
-Serves on `http://127.0.0.1:8000`. By default it accepts browser requests from
-`http://localhost:3000` / `http://127.0.0.1:3000` (CORS) — copy `.env.example` to
-`.env` and set `CORPUS_ALLOWED_ORIGINS` if your frontend runs on a different port (for
-example, if port 3000 is already in use, Next.js will pick the next free port and you
-must update this to match, or the browser will get CORS errors).
+Open <http://localhost:3000>. API health and readiness are available at
+<http://localhost:8000/health> and <http://localhost:8000/ready>. Local Compose uses
+the filesystem BlobStore and does not require a review token. The worker is separate
+so it can be stopped and restarted without losing queued jobs or checkpoints.
 
-**Frontend** (see `frontend/` for its own scripts):
+## Verification
 
-```
+```powershell
+docker compose run --rm migrate
+docker compose exec -T api python -m pytest -q
+docker compose exec -T api sh -c "pip install --no-cache-dir ruff mypy && ruff check app tests && mypy app"
 cd frontend
-npm install
-npm run dev
+npm test -- --run
+npm run lint
+npx tsc --noEmit
+npm run build
+$env:CORPUS_UI_URL = "http://127.0.0.1:3000"
+npm run test:e2e
 ```
 
-Serves on `http://localhost:3000` (or the next free port). Copy `.env.example` to
-`.env.local` if the backend isn't at the default `http://127.0.0.1:8000`.
+The acceptance suites in `backend/tests/*acceptance.py` exercise the running API
+against real PostgreSQL. `scripts/validate-deployment.ps1` checks health/readiness.
 
-Then open the frontend URL, upload a native-text PDF, and explore. The RIL Integrated
-Annual Report used throughout development (`../poc-01/documents/native/RIL_IAR
-2026.pdf`) is a good test document — try the "Page 22" and "Page 81" quick-jump buttons
-that appear for any document with enough pages.
+## Hosted topology
 
-## Deployment
+The supported free-tier shape is Vercel (frontend) → Render (one Docker web service
+running API and worker under supervision) → Supabase (PostgreSQL plus a private
+S3-compatible bucket). Set the S3 credentials and database URL only in provider
+secret stores. `backend/.env.production.example`, `DEPLOYMENT.md`, and
+`SECRET_INVENTORY.md` list the required variables. `python -m app.diagnostics`
+validates database and blob-store connectivity without printing secrets.
 
-Not yet deployed anywhere — no external hosting account or Git remote has been set up
-for this project. Deployment-readiness (Render config for the backend, Vercel-ready
-frontend, environment variable wiring, CORS configuration) is **prepared**; see
-[`DEPLOYMENT.md`](./DEPLOYMENT.md) for the full architecture, setup steps, and an
-explicit breakdown of what is locally validated vs. externally unvalidated. See
-`DECISIONS.md` `DEC-009` for why Render (not a serverless/Function platform) was
-chosen for the backend, and `BUILD_LOG.md` for the session this was prepared in.
+Hosted access is gated by `CORPUS_REVIEW_TOKEN`. The frontend asks for it once per
+browser session and sends it in `X-Corpus-Review-Token`; it is never a public build
+variable. Use the “Forget review token” control to clear session storage.
+
+## Scope and limitations
+
+The legacy `/extract` endpoint and bounding-box viewer remain available for derived
+output inspection and compatibility. New durable UI flows do not call `/extract`.
+OCR expansion, embeddings, vector databases, RAG, LLM findings, and distributed
+queues are intentionally out of scope. Render's local filesystem is ephemeral, so
+hosted deployments must use Supabase S3-compatible storage.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment and rollback procedures and
+[REVIEWER_WALKTHROUGH.md](REVIEWER_WALKTHROUGH.md) for a five-minute review path.

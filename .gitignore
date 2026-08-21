@@ -30,6 +30,17 @@ yarn-error.log*
 backend/uploads/
 backend/tmp/
 backend/data/
+blob_data/
+storage/
+canonical/
+derived/
+staging/
+uploads/
+artifacts/
+test-results/
+**/test-results/
+*.sqlite3
+*.db
 *.pdf
 
 # --- OS / editor cruft ---

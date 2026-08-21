@@ -3,8 +3,57 @@
 FastAPI application. See root `../PROJECT.md`, `../DECISIONS.md`, `../REQUIREMENTS.md`
 for product/architecture context, and `../BUILD_LOG.md` for current implementation
 status. For deploying this backend (Render), see `../DEPLOYMENT.md` and
-`render.yaml`/`.env.production.example` in this directory — prepared but not yet
-externally validated (no deployment has occurred).
+the repository-root `render.yaml` and `.env.production.example` — prepared but not
+yet externally deployed.
+
+## Durable foundation
+
+The v0.1.0 foundation adds PostgreSQL-backed custodian, corpus, canonical object,
+source, arrival, enrollment, processing-job, checkpoint, and derived-representation
+records. Migrations under `migrations/` are the schema source of truth. The local
+filesystem `BlobStore` keeps canonical objects and derived artifacts under separate,
+custodian-scoped roots.
+
+From `corpus-poc/`, start PostgreSQL, the migration helper, API, and separate durable worker:
+
+```
+docker compose up --build
+```
+
+The worker claims queued jobs transactionally from PostgreSQL, renews leases, processes
+one page at a time, and commits page JSON/render representations with canonical lineage.
+The existing `/extract` and page-image endpoints remain available for the prototype
+viewer and are not replaced by the durable pipeline.
+
+Processing monitor endpoints include `GET /v1/processing-jobs`, job detail, pages,
+attempt history, retry, worker heartbeats, source representations, and custodian-bounded
+derived artifact metadata/download. A lease-expired job returns to `queued`; completed
+page checkpoints remain durable and are skipped by a restarted worker. Set
+`CORPUS_WORKER_PAGE_DELAY_SECONDS` or `CORPUS_WORKER_FAIL_PAGE_NUMBER` only for local
+failure/recovery demonstrations.
+
+### Durable source admission
+
+`POST /v1/admissions` (also available as `POST /v1/sources`) accepts a multipart
+upload with `file`, `custodian_id`, `corpus_id`, and `arrival_channel`; `claimed_origin`
+and `obtained_from` are optional. An optional `Idempotency-Key` header makes a completed
+request replay-safe. The endpoint streams bytes into custodian-scoped staging,
+validates the PDF header, computes SHA-256, atomically promotes canonical bytes, and
+returns source, canonical object, arrival, enrollment, and queued processing-job
+identities. It does not extract the document.
+
+Read APIs require a custodian boundary: `GET /v1/sources?custodian_id=...&corpus_id=...`,
+`GET /v1/sources/{source_id}?custodian_id=...`, `/arrivals`, `/enrollments`,
+`/canonical`, and `GET /v1/processing-jobs/{job_id}?custodian_id=...`.
+
+Apply migrations explicitly when needed:
+
+```
+docker compose run --rm migrate
+```
+
+`GET /health` remains a dependency-free liveness check. `GET /ready` checks the
+configured PostgreSQL connection. The foundation endpoints are under `/v1/`.
 
 ## Setup
 

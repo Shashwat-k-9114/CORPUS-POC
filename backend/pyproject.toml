@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501", "UP007", "UP017", "UP035", "UP037"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+exclude = "(^|/)(.venv|__pycache__)/"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests requiring a real PostgreSQL database",
+    "acceptance: tests requiring the running Docker Compose API",
+]
