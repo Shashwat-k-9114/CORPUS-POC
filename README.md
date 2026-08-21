@@ -7,8 +7,8 @@ lineage. Canonical bytes are never replaced by derived output.
 
 ## Local production-shaped stack
 
-The Compose stack contains PostgreSQL, a migration one-shot, API, worker, and the
-standalone Next.js frontend:
+The Compose stack contains PostgreSQL, MinIO, migration and bucket-initializer
+one-shots, API, worker, and the standalone Next.js frontend:
 
 ```powershell
 docker compose up -d --build
@@ -17,8 +17,12 @@ docker compose ps
 
 Open <http://localhost:3000>. API health and readiness are available at
 <http://localhost:8000/health> and <http://localhost:8000/ready>. Local Compose uses
-the filesystem BlobStore and does not require a review token. The worker is separate
-so it can be stopped and restarted without losing queued jobs or checkpoints.
+the application `BlobStore` abstraction backed by a private, persistent MinIO bucket
+(`corpus-private`) for canonical and derived bytes. PostgreSQL stores metadata, hashes,
+storage keys, and lineage; it does not store document bytes. The worker is separate so
+it can be stopped and restarted without losing queued jobs, checkpoints, or MinIO
+objects. MinIO's S3 API is at `http://localhost:9000` and its development console is
+at `http://localhost:9001` (local-only credentials are defined in Compose).
 
 ## Verification
 
@@ -55,9 +59,9 @@ variable. Use the “Forget review token” control to clear session storage.
 
 The legacy `/extract` endpoint and bounding-box viewer remain available for derived
 output inspection and compatibility. New durable UI flows do not call `/extract`.
-OCR expansion, embeddings, vector databases, RAG, LLM findings, and distributed
-queues are intentionally out of scope. Render's local filesystem is ephemeral, so
-hosted deployments must use Supabase S3-compatible storage.
+OCR expansion, embeddings, vector databases, RAG, LLM findings, distributed queues,
+and retrieval/search are intentionally out of scope. Render's local filesystem is
+ephemeral, so hosted deployments must use Supabase/AWS S3-compatible storage.
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment and rollback procedures and
 [REVIEWER_WALKTHROUGH.md](REVIEWER_WALKTHROUGH.md) for a five-minute review path.

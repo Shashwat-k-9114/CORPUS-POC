@@ -10,6 +10,14 @@ Render runs `backend/entrypoint.sh`, which applies migrations and supervises the
 and worker. Render’s filesystem is ephemeral; canonical and derived objects must use
 Supabase S3 storage.
 
+For local verification, `docker compose up -d --build` starts PostgreSQL, MinIO, an
+idempotent private-bucket initializer, API, worker, and frontend. The API and worker
+both use the existing S3 BlobStore with `CORPUS_S3_ENDPOINT_URL=http://minio:9000`,
+`CORPUS_S3_REGION=us-east-1`, `CORPUS_S3_BUCKET=corpus-private`, and the Compose-only
+`minioadmin` credentials. MinIO persists bytes in the named `minio_data` volume;
+PostgreSQL persists metadata and object references. Retrieval/search is not part of
+this slice.
+
 ## 1. Generate secrets locally
 
 Run this locally and keep the output in a password manager or provider secret field:

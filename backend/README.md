@@ -10,9 +10,12 @@ yet externally deployed.
 
 The v0.1.0 foundation adds PostgreSQL-backed custodian, corpus, canonical object,
 source, arrival, enrollment, processing-job, checkpoint, and derived-representation
-records. Migrations under `migrations/` are the schema source of truth. The local
-filesystem `BlobStore` keeps canonical objects and derived artifacts under separate,
-custodian-scoped roots.
+records. Migrations under `migrations/` are the schema source of truth. The application
+`BlobStore` abstraction keeps canonical objects and derived artifacts separate and
+custodian-scoped. Local Compose routes it to the private MinIO S3 bucket; hosted
+deployments route it to Supabase/AWS S3. PostgreSQL stores metadata, hashes, storage
+keys, and lineage only; object storage holds the immutable PDF, page render, and page
+word/region JSON bytes. Retrieval/search is outside this slice.
 
 From `corpus-poc/`, start PostgreSQL, the migration helper, API, and separate durable worker:
 

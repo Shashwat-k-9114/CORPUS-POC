@@ -2,10 +2,11 @@
 
 ## Local production topology
 
-`docker compose up -d --build` starts PostgreSQL, migrations, FastAPI, the independent
-worker, and the production Next.js frontend. The API and worker share only PostgreSQL
-and the configured BlobStore contract; local Compose uses the persistent `blob_data`
-volume. The frontend is at `http://127.0.0.1:3000`.
+`docker compose up -d --build` starts PostgreSQL, migrations, MinIO, the idempotent
+private-bucket initializer, FastAPI, the independent worker, and the production
+Next.js frontend. The API and worker share only PostgreSQL and the configured
+BlobStore contract; local Compose stores canonical and derived bytes in the persistent
+`minio_data` volume through MinIO's S3 API. The frontend is at `http://127.0.0.1:3000`.
 
 ```powershell
 docker compose up -d --build
@@ -13,6 +14,13 @@ docker compose run --rm migrate
 .\scripts\validate-deployment.ps1
 docker compose ps
 ```
+
+MinIO is the local S3-compatible server. Its API is exposed at
+`http://127.0.0.1:9000`, its console at `http://127.0.0.1:9001`, and Compose creates
+the private `corpus-private` bucket using local-only `minioadmin` credentials. The
+initializer is safe to run repeatedly; it never makes the bucket public. Staging is
+ephemeral container disk, while final canonical and derived objects are promoted to
+MinIO before database admission or representation linkage.
 
 ## Review deployment topology
 

@@ -75,6 +75,16 @@ def test_s3_derived_artifact_uses_separate_namespace(tmp_path: Path) -> None:
     assert result.storage_key.startswith("derived/")
 
 
+def test_s3_rejects_object_keys_outside_the_store_namespace() -> None:
+    store = make_store(FakeS3())
+
+    with pytest.raises(ValueError):
+        store.open("../canonical/escape")
+
+    with pytest.raises(ValueError):
+        list(store.iter_chunks("/canonical/absolute"))
+
+
 def test_s3_failure_after_copy_leaves_final_for_safe_retry_and_cleans_staging(tmp_path: Path) -> None:
     payload = b"%PDF-1.7\nbytes"
     staged = tmp_path / "upload.part"
