@@ -328,8 +328,11 @@ class PostgresRepositories(
                 "INSERT INTO enrollments (id, corpus_id, source_id) VALUES (%s, %s, %s) ON CONFLICT (corpus_id, source_id) DO UPDATE SET source_id = EXCLUDED.source_id RETURNING id, corpus_id, source_id, enrolled_at",
                 (uuid4(), corpus_id, source_row["id"]),
             ).fetchone()
+            # Exact duplicate deliveries preserve the source's existing pipeline
+            # identity, including after completion. A repeat arrival must not create
+            # a redundant active job for bytes already admitted and processed.
             job_row = connection.execute(
-                f"SELECT {JOB_FIELDS} FROM processing_jobs WHERE source_id = %s AND state IN ('queued', 'processing') ORDER BY created_at, id LIMIT 1 FOR UPDATE",
+                f"SELECT {JOB_FIELDS} FROM processing_jobs WHERE source_id = %s ORDER BY CASE state WHEN 'processing' THEN 0 WHEN 'queued' THEN 1 WHEN 'partial' THEN 2 WHEN 'failed' THEN 3 WHEN 'completed' THEN 4 ELSE 5 END, created_at DESC, id DESC LIMIT 1 FOR UPDATE",
                 (source_row["id"],),
             ).fetchone()
             if job_row is None:

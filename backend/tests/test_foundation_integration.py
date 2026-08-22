@@ -106,3 +106,53 @@ def test_processing_job_survives_a_new_repository_instance(repositories: Postgre
     checkpoints = fresh.ensure_page_checkpoints(created.id, 2)
     assert [checkpoint.page_number for checkpoint in checkpoints] == [1, 2]
     assert fresh.get_page_checkpoint(created.id, 2) == checkpoints[1]
+
+
+def test_exact_duplicate_reuses_completed_processing_job(repositories: PostgresRepositories):
+    default = next(custodian for custodian in repositories.list_custodians() if custodian.slug == "default")
+    corpus = repositories.get_default_for_custodian(default.id)
+    assert corpus is not None
+    digest = uuid4().hex * 2
+    storage_key = f"canonical/{default.id}/{digest[:2]}/{digest}"
+    first = repositories.admit(
+        custodian_id=default.id,
+        corpus_id=corpus.id,
+        sha256=digest,
+        byte_size=1,
+        media_type="application/pdf",
+        storage_key=storage_key,
+        display_name="duplicate-job.pdf",
+        claimed_origin="test",
+        obtained_from="test",
+        arrival_channel="test",
+        original_filename="duplicate-job.pdf",
+        idempotency_key=None,
+        request_fingerprint=f"first-{digest}",
+        pipeline_name="pdf-page-processing",
+        pipeline_version="0.1.0",
+    )
+    repositories.transition_job(first.processing_job.id, "processing")
+    repositories.transition_job(first.processing_job.id, "completed")
+
+    second = repositories.admit(
+        custodian_id=default.id,
+        corpus_id=corpus.id,
+        sha256=digest,
+        byte_size=1,
+        media_type="application/pdf",
+        storage_key=storage_key,
+        display_name="duplicate-job-again.pdf",
+        claimed_origin="test-repeat",
+        obtained_from="test-repeat",
+        arrival_channel="test-repeat",
+        original_filename="duplicate-job-again.pdf",
+        idempotency_key=None,
+        request_fingerprint=f"second-{digest}",
+        pipeline_name="pdf-page-processing",
+        pipeline_version="0.1.0",
+    )
+
+    assert second.exact_duplicate is True
+    assert second.source.id == first.source.id
+    assert second.processing_job.id == first.processing_job.id
+    assert second.processing_job.state == "completed"
