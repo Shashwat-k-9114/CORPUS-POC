@@ -19,6 +19,52 @@ def test_settings_validate_postgres_url_and_positive_limits(tmp_path: Path):
     assert settings.database_url.startswith("postgresql://")
     assert settings.max_upload_size_bytes == 123
     assert settings.worker_poll_seconds == 0.5
+    assert settings.client_id == "local-development"
+
+
+def test_production_requires_deployment_client_identity():
+    with pytest.raises(ConfigurationError, match="CORPUS_CLIENT_ID"):
+        Settings.from_env(
+            {
+                "CORPUS_ENVIRONMENT": "production",
+                "CORPUS_DATABASE_URL": "postgresql://user:pass@db:5432/corpus",
+                "CORPUS_BLOB_STORE_BACKEND": "s3",
+                "CORPUS_S3_ENDPOINT_URL": "https://storage.example.test",
+                "CORPUS_S3_REGION": "us-east-1",
+                "CORPUS_S3_BUCKET": "client-private",
+                "CORPUS_S3_ACCESS_KEY": "access",
+                "CORPUS_S3_SECRET_KEY": "secret",
+                "CORPUS_REVIEW_TOKEN": "review-token",
+            }
+        )
+
+
+def test_production_requires_database_url():
+    environment = {
+        "CORPUS_ENVIRONMENT": "production",
+        "CORPUS_CLIENT_ID": "client-a",
+        "CORPUS_BLOB_STORE_BACKEND": "s3",
+        "CORPUS_S3_ENDPOINT_URL": "https://storage.example.test",
+        "CORPUS_S3_REGION": "us-east-1",
+        "CORPUS_S3_BUCKET": "client-private",
+        "CORPUS_S3_ACCESS_KEY": "access",
+        "CORPUS_S3_SECRET_KEY": "secret",
+        "CORPUS_REVIEW_TOKEN": "review-token",
+    }
+    with pytest.raises(ConfigurationError, match="CORPUS_DATABASE_URL"):
+        Settings.from_env(environment)
+
+
+def test_production_requires_private_s3_configuration():
+    with pytest.raises(ConfigurationError, match="BLOB_STORE_BACKEND=s3"):
+        Settings.from_env(
+            {
+                "CORPUS_ENVIRONMENT": "production",
+                "CORPUS_CLIENT_ID": "client-a",
+                "CORPUS_DATABASE_URL": "postgresql://user:pass@db:5432/corpus",
+                "CORPUS_REVIEW_TOKEN": "review-token",
+            }
+        )
 
 
 @pytest.mark.parametrize(

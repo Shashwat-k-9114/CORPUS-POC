@@ -6,6 +6,12 @@ This wizard describes the repository’s actual hosted topology:
 Vercel Hobby (frontend) → Render Free Docker web service → Supabase Postgres + private S3 bucket
 ```
 
+Each deployed instance is one client. Client isolation is physical infrastructure
+isolation: one client gets one PostgreSQL database, one private S3-compatible bucket,
+one set of storage credentials, one Render deployment, and one frontend deployment.
+`CORPUS_CLIENT_ID` labels the deployment. Custodians and corpora are internal logical
+boundaries inside that client; the custodian selector is not a client selector.
+
 Render runs `backend/entrypoint.sh`, which applies migrations and supervises the API
 and worker. Render’s filesystem is ephemeral; canonical and derived objects must use
 Supabase S3 storage.
@@ -31,9 +37,10 @@ Use the result only as `CORPUS_REVIEW_TOKEN`. Never commit it or place it in a
 
 ## 2. Supabase
 
-1. Create one Supabase project: `<SUPABASE_PROJECT_NAME>` in region
+1. Create one Supabase project for this client: `<SUPABASE_PROJECT_NAME>` in region
    `<SUPABASE_REGION>`.
-2. Open Storage and create a **private** bucket named `corpus-private`.
+2. Open Storage and create a **private** bucket named `<CLIENT_BUCKET>` for this
+   client. Never share it with another client deployment.
 3. Create server-only S3 credentials for that project. Record the endpoint,
    region, access key, and secret key in the Render secret store only.
 4. Obtain a long-running PostgreSQL connection string using the Supavisor
@@ -45,6 +52,7 @@ Use the result only as `CORPUS_REVIEW_TOKEN`. Never commit it or place it in a
 
 Supabase supplies these values to Render; it does not receive Vercel variables:
 
+- `CORPUS_CLIENT_ID` — non-secret deployment identity for this client.
 - `CORPUS_DATABASE_URL` — secret PostgreSQL URL.
 - `CORPUS_S3_ENDPOINT_URL` — S3 endpoint for `<PROJECT_REF>`.
 - `CORPUS_S3_REGION` — S3 region.
@@ -61,7 +69,11 @@ Supabase supplies these values to Render; it does not receive Vercel variables:
 3. Review the service `corpus-backend` (`runtime: docker`, plan `free`). Its exact
    build settings are `rootDir: .`, `dockerfilePath: backend/Dockerfile`, and
    `dockerContext: .`.
-4. Set these secret environment variables in Render:
+4. Set these provider environment variables in Render:
+
+   - `CORPUS_CLIENT_ID` (deployment identity; not a credential)
+
+   Set the following values in Render's secret environment store:
 
    - `CORPUS_DATABASE_URL`
    - `CORPUS_S3_ENDPOINT_URL`
@@ -83,6 +95,9 @@ Supabase supplies these values to Render; it does not receive Vercel variables:
 
 6. Deploy and wait for `/health` and `/ready` to pass. The worker must remain
    supervised in the same container; a worker exit intentionally fails the service.
+
+The production configuration is rejected when the client identity, explicit database
+URL, or private S3 backend configuration is missing.
 
 The worker/runtime knobs are also supported by the backend and may be left at their
 defaults in Render: `CORPUS_WORKER_POLL_SECONDS`, `CORPUS_WORKER_LEASE_SECONDS`,
@@ -151,3 +166,8 @@ confirm a new arrival without a duplicate source or active job.
 
 Do not use destructive migration rollbacks. Canonical objects are immutable and this
 POC has no production SLA; free-tier sleep/cold-start behavior is expected.
+
+To provision a second client, repeat the full Supabase, Render, and Vercel setup with
+new resources and credentials, set a new `CORPUS_CLIENT_ID`, and point the new frontend
+only at the new Render service. There is intentionally no shared database, shared
+bucket, runtime connection switching, or central control plane.

@@ -54,6 +54,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
+      CORPUS_CLIENT_ID: local-development
       CORPUS_DATABASE_URL: postgresql://corpus:corpus@postgres:5432/corpus
     command: ["python", "-m", "app.db.migrate"]
     depends_on:
@@ -66,6 +67,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
+      CORPUS_CLIENT_ID: local-development
       CORPUS_DATABASE_URL: postgresql://corpus:corpus@postgres:5432/corpus
       CORPUS_BLOB_STORE_BACKEND: s3
       CORPUS_S3_ENDPOINT_URL: http://minio:9000
@@ -94,6 +96,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
+      CORPUS_CLIENT_ID: local-development
       CORPUS_DATABASE_URL: postgresql://corpus:corpus@postgres:5432/corpus
       CORPUS_BLOB_STORE_BACKEND: s3
       CORPUS_S3_ENDPOINT_URL: http://minio:9000

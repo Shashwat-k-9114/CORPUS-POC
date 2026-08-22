@@ -346,6 +346,30 @@ presented as confirmed.
 
 ---
 
+## DEC-010 — One client per deployment with physical database and bucket isolation
+
+**Date:** 2026-08-22
+**Status:** ACCEPTED
+
+**Context:** The reviewer clarified that each client must receive a separate database
+and separate storage bucket. The earlier custodian-scoped model provided logical
+isolation inside one deployment but did not define the client boundary.
+
+**Decision:** A running CORPUS deployment represents exactly one client. Provisioning a
+client creates a new PostgreSQL database, private S3-compatible bucket, server-only
+storage credentials, `CORPUS_CLIENT_ID`, and deployment configuration. The process uses
+one database URL and one bucket for its entire lifetime. There is no runtime database
+switching, shared multi-client table, dynamic credential resolution, or central control
+plane. Custodians and corpora remain logical organizational boundaries inside that
+client, and custodian-scoped keys remain defense in depth.
+
+**Consequences:** `CORPUS_CLIENT_ID` is deployment configuration rather than persisted
+schema, so no migration is required. The existing hosted environment is one
+demonstration client. A second client is a separate provider deployment and does not
+share the first client's database, bucket, or credentials.
+
+---
+
 ## Open questions (not yet decided)
 
 - Whether a small synthetic PDF fixture should be committed to `corpus-poc` for

@@ -15,6 +15,7 @@ class ConfigurationError(ValueError):
 @dataclass(frozen=True)
 class Settings:
     database_url: str
+    client_id: str
     blob_store_root: Path
     blob_store_backend: str = "local"
     s3_endpoint_url: str | None = None
@@ -35,6 +36,18 @@ class Settings:
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
         env = os.environ if environ is None else environ
+        environment = env.get("CORPUS_ENVIRONMENT", "development").strip() or "development"
+        client_id = env.get("CORPUS_CLIENT_ID", "").strip()
+        if environment == "production":
+            if not client_id:
+                raise ConfigurationError("CORPUS_CLIENT_ID is required in production.")
+            if not env.get("CORPUS_DATABASE_URL", "").strip():
+                raise ConfigurationError("CORPUS_DATABASE_URL is required in production.")
+            if env.get("CORPUS_BLOB_STORE_BACKEND", "local").strip().lower() != "s3":
+                raise ConfigurationError(
+                    "Production requires CORPUS_BLOB_STORE_BACKEND=s3 for a private client bucket."
+                )
+        client_id = client_id or "local-development"
         database_url = env.get(
             "CORPUS_DATABASE_URL",
             "postgresql://corpus:corpus@localhost:5432/corpus",
@@ -76,13 +89,13 @@ class Settings:
         page_delay = _nonnegative_float(env.get("CORPUS_WORKER_PAGE_DELAY_SECONDS", "0"), "CORPUS_WORKER_PAGE_DELAY_SECONDS")
         failure_page_value = env.get("CORPUS_WORKER_FAIL_PAGE_NUMBER", "").strip()
         failure_page = _positive_int(failure_page_value, "CORPUS_WORKER_FAIL_PAGE_NUMBER") if failure_page_value else None
-        environment = env.get("CORPUS_ENVIRONMENT", "development").strip() or "development"
         review_token = env.get("CORPUS_REVIEW_TOKEN", "").strip() or None
         if environment == "production" and not review_token:
             raise ConfigurationError("CORPUS_REVIEW_TOKEN is required in production.")
         rate_limit = _positive_int(env.get("CORPUS_RATE_LIMIT_PER_MINUTE", "120"), "CORPUS_RATE_LIMIT_PER_MINUTE")
         return cls(
             database_url=database_url,
+            client_id=client_id,
             blob_store_root=Path(blob_root),
             blob_store_backend=backend,
             s3_endpoint_url=s3_endpoint,

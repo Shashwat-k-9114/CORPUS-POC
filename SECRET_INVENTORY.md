@@ -2,7 +2,10 @@
 
 These values are required only in provider secret stores or local untracked `.env` files:
 
+- `CORPUS_CLIENT_ID` — non-secret identity for the one client represented by a deployment.
 - `CORPUS_DATABASE_URL` — Supabase PostgreSQL connection string with SSL.
+- `CORPUS_S3_ENDPOINT_URL`, `CORPUS_S3_REGION`, `CORPUS_S3_BUCKET` — the one private
+  client bucket configuration; keep them deployment-specific.
 - `CORPUS_S3_ACCESS_KEY`, `CORPUS_S3_SECRET_KEY` — Supabase Storage S3 credentials.
 - `CORPUS_REVIEW_TOKEN` — reviewer access token shared out-of-band with Piyush Sir.
 - `CORPUS_ALLOWED_ORIGINS` — deployed Vercel origin; not secret, but deployment-scoped.

@@ -14,6 +14,12 @@ document, understand its structure, let a user search/find information within it
 return findings with reliable provenance back to the exact location in the source
 document they came from.
 
+For the current durable v0.1.0 architecture, the north star is a client-isolated
+evidence corpus: one deployment, one PostgreSQL database, and one private object-store
+bucket per client. Custodians and corpora are logical organizational boundaries within
+that client, not a shared multi-client tenancy mechanism. A second client is provisioned
+with new infrastructure and credentials rather than selected at runtime.
+
 This repository (`corpus-poc`) is **not** that final system. It is the first
 independently deployable prototype — an interactive product validation layer built on
 top of earlier research (`../poc-01/`, treated as read-only, frozen experimental

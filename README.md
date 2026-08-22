@@ -1,9 +1,25 @@
 # CORPUS v0.1.0 POC
 
-CORPUS is a durable document-admission and asynchronous page-processing proof of
-concept. Uploads are streamed into custodian-scoped canonical storage; PostgreSQL
-holds source identity, provenance, enrollment, jobs, checkpoints, and derived
-lineage. Canonical bytes are never replaced by derived output.
+CORPUS is a durable client-isolated evidence corpus and asynchronous page-processing
+proof of concept. One deployed CORPUS instance represents exactly one client and uses
+that client's PostgreSQL database and private object-storage bucket. Uploads are
+streamed into custodian-scoped keys inside that client bucket; PostgreSQL holds source
+identity, provenance, enrollment, jobs, checkpoints, and derived lineage. Canonical
+bytes are never replaced by derived output.
+
+## Isolation model
+
+Client isolation is physical infrastructure isolation: every client receives a separate
+CORPUS deployment, PostgreSQL database, private S3-compatible bucket, and storage
+credentials. There is no runtime database switching, shared multi-client table, dynamic
+credential resolver, or central control plane in this POC. `CORPUS_CLIENT_ID` identifies
+the client represented by the running deployment and is deployment configuration, not a
+database record.
+
+Custodians and corpora are internal organizational boundaries inside that one client.
+The frontend custodian selector is never a client or tenant selector. Custodian-scoped
+database queries and object keys remain defense in depth within the already isolated
+client deployment.
 
 ## Local production-shaped stack
 
@@ -45,9 +61,9 @@ against real PostgreSQL. `scripts/validate-deployment.ps1` checks health/readine
 ## Hosted topology
 
 The supported free-tier shape is Vercel (frontend) → Render (one Docker web service
-running API and worker under supervision) → Supabase (PostgreSQL plus a private
-S3-compatible bucket). Set the S3 credentials and database URL only in provider
-secret stores. `backend/.env.production.example`, `DEPLOYMENT.md`, and
+running API and worker under supervision) → one Supabase PostgreSQL database plus one
+private S3-compatible bucket for that demonstration client. Set the client identity,
+S3 credentials and database URL only in provider secret stores. `backend/.env.production.example`, `DEPLOYMENT.md`, and
 `SECRET_INVENTORY.md` list the required variables. `python -m app.diagnostics`
 validates database and blob-store connectivity without printing secrets.
 
