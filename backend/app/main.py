@@ -73,7 +73,9 @@ def _cors_error_headers(request: Request) -> dict[str, str]:
 @app.middleware("http")
 async def security_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     path = request.url.path
-    if path not in {"/health", "/ready"} and (path.startswith("/v1/") or path.startswith("/extract") or path.startswith("/documents/")):
+    # Browser CORS preflight requests intentionally do not carry the review
+    # token. Let CORSMiddleware answer OPTIONS before applying API auth.
+    if request.method != "OPTIONS" and path not in {"/health", "/ready"} and (path.startswith("/v1/") or path.startswith("/extract") or path.startswith("/documents/")):
         try:
             settings = Settings.from_env()
         except ConfigurationError as exc:
